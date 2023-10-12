@@ -7,18 +7,17 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "window/themes/window_theme_preview.h"
 
+#include "dialogs/dialogs_three_state_icon.h"
 #include "lang/lang_keys.h"
 #include "platform/platform_window_title.h"
 #include "ui/text/text_options.h"
 #include "ui/text/text_utilities.h"
-#include "ui/image/image_prepare.h"
 #include "ui/empty_userpic.h"
 #include "ui/emoji_config.h"
 #include "ui/painter.h"
 #include "ui/chat/chat_theme.h"
 #include "ui/chat/chat_style.h"
 #include "ui/chat/message_bubble.h"
-#include "ui/image/image_prepare.h"
 #include "styles/style_widgets.h"
 #include "styles/style_window.h"
 #include "styles/style_media_view.h"
@@ -31,7 +30,7 @@ namespace Window {
 namespace Theme {
 namespace {
 
-QString fillLetters(const QString &name) {
+[[nodiscard]] QString FillLetters(const QString &name) {
 	QList<QString> letters;
 	QList<int> levels;
 	auto level = 0;
@@ -48,7 +47,7 @@ QString fillLetters(const QString &name) {
 			}
 		} else if (!letterFound && ch->isLetterOrNumber()) {
 			letterFound = true;
-			if (ch + 1 != end && Ui::Text::IsDiac(*(ch + 1))) {
+			if (ch + 1 != end && Ui::Text::IsDiacritic(*(ch + 1))) {
 				letters.push_back(QString(ch, 2));
 				levels.push_back(level);
 				++ch;
@@ -236,7 +235,7 @@ void Generator::addRow(
 	Row row;
 	row.name.setText(st::msgNameStyle, name, Ui::NameTextOptions());
 
-	row.letters = fillLetters(name);
+	row.letters = FillLetters(name);
 
 	row.peerIndex = peerIndex;
 	row.date = date;
@@ -354,25 +353,25 @@ void Generator::generateData() {
 		"Mike Apple",
 		2,
 		"9:00",
-		Ui::Text::PlainLink(QChar(55357)
+		Ui::Text::Colorized(QChar(55357)
 			+ QString()
 			+ QChar(56836)
 			+ " Sticker"));
 	_rows.back().unreadCounter = 2;
 	_rows.back().muted = true;
-	addRow("Evening Club", 1, "8:00", Ui::Text::PlainLink("Eva: Photo"));
+	addRow("Evening Club", 1, "8:00", Ui::Text::Colorized("Eva: Photo"));
 	_rows.back().type = Row::Type::Group;
 	addRow(
 		"Old Pirates",
 		6,
 		"7:00",
-		Ui::Text::PlainLink("Max:").append(" Yo-ho-ho!"));
+		Ui::Text::Colorized("Max:").append(" Yo-ho-ho!"));
 	_rows.back().type = Row::Type::Group;
 	addRow("Max Bright", 3, "6:00", { .text = "How about some coffee?" });
 	_rows.back().status = Status::Received;
 	addRow("Natalie Parker", 4, "5:00", { .text = "OK, great)" });
 	_rows.back().status = Status::Received;
-	addRow("Davy Jones", 5, "4:00", Ui::Text::PlainLink("Keynote.pdf"));
+	addRow("Davy Jones", 5, "4:00", Ui::Text::Colorized("Keynote.pdf"));
 
 	_topBarName.setText(st::msgNameStyle, "Eva Summer", Ui::NameTextOptions());
 	_topBarStatus = "online";
@@ -695,9 +694,15 @@ void Generator::paintRow(const Row &row) {
 
 	auto chatTypeIcon = ([&row]() -> const style::icon * {
 		if (row.type == Row::Type::Group) {
-			return &(row.active ? st::dialogsChatIconActive : (row.selected ? st::dialogsChatIconOver : st::dialogsChatIcon));
+			return &Dialogs::ThreeStateIcon(
+				st::dialogsChatIcon,
+				row.active,
+				row.selected);
 		} else if (row.type == Row::Type::Channel) {
-			return &(row.active ? st::dialogsChannelIconActive : (row.selected ? st::dialogsChannelIconOver : st::dialogsChannelIcon));
+			return &Dialogs::ThreeStateIcon(
+				st::dialogsChannelIcon,
+				row.active,
+				row.selected);
 		}
 		return nullptr;
 	})();
@@ -750,7 +755,10 @@ void Generator::paintRow(const Row &row) {
 		_p->setPen(row.active ? st::dialogsUnreadFgActive[_palette] : (row.selected ? st::dialogsUnreadFgOver[_palette] : st::dialogsUnreadFg[_palette]));
 		_p->drawText(unreadRectLeft + (unreadRectWidth - unreadWidth) / 2, unreadRectTop + textTop + st::dialogsUnreadFont->ascent, counter);
 	} else if (row.pinned) {
-		auto icon = (row.active ? st::dialogsPinnedIconActive[_palette] : (row.selected ? st::dialogsPinnedIconOver[_palette] : st::dialogsPinnedIcon[_palette]));
+		auto icon = Dialogs::ThreeStateIcon(
+			st::dialogsPinnedIcon,
+			row.active,
+			row.selected)[_palette];
 		icon.paint(*_p, x + fullWidth - st.padding.right() - icon.width(), texttop, fullWidth);
 		availableWidth -= icon.width() + st::dialogsUnreadPadding;
 	}
@@ -763,9 +771,15 @@ void Generator::paintRow(const Row &row) {
 
 	auto sendStateIcon = ([&row]() -> const style::icon* {
 		if (row.status == Status::Sent) {
-			return &(row.active ? st::dialogsSentIconActive : (row.selected ? st::dialogsSentIconOver : st::dialogsSentIcon));
+			return &Dialogs::ThreeStateIcon(
+				st::dialogsSentIcon,
+				row.active,
+				row.selected);
 		} else if (row.status == Status::Received) {
-			return &(row.active ? st::dialogsReceivedIconActive : (row.selected ? st::dialogsReceivedIconOver : st::dialogsReceivedIcon));
+			return &Dialogs::ThreeStateIcon(
+				st::dialogsReceivedIcon,
+				row.active,
+				row.selected);
 		}
 		return nullptr;
 	})();

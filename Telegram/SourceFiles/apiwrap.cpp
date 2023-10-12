@@ -31,6 +31,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "api/api_transcribes.h"
 #include "api/api_premium.h"
 #include "api/api_user_names.h"
+#include "api/api_websites.h"
 #include "data/notify/data_notify_settings.h"
 #include "data/stickers/data_stickers.h"
 #include "data/data_drafts.h"
@@ -176,7 +177,8 @@ ApiWrap::ApiWrap(not_null<Main::Session*> session)
 , _ringtones(std::make_unique<Api::Ringtones>(this))
 , _transcribes(std::make_unique<Api::Transcribes>(this))
 , _premium(std::make_unique<Api::Premium>(this))
-, _usernames(std::make_unique<Api::Usernames>(this)) {
+, _usernames(std::make_unique<Api::Usernames>(this))
+, _websites(std::make_unique<Api::Websites>(this)) {
 	crl::on_main(session, [=] {
 		// You can't use _session->lifetime() in the constructor,
 		// only queued, because it is not constructed yet.
@@ -774,10 +776,9 @@ QString ApiWrap::exportDirectMessageLink(
 
 QString ApiWrap::exportDirectStoryLink(not_null<Data::Story*> story) {
 	const auto storyId = story->fullId();
-	const auto user = story->peer()->asUser();
-	Assert(user != nullptr);
+	const auto peer = story->peer();
 	const auto fallback = [&] {
-		const auto base = user->username();
+		const auto base = peer->userName();
 		const auto story = QString::number(storyId.story);
 		const auto query = base + "/s/" + story;
 		return session().createInternalLinkFull(query);
@@ -787,7 +788,7 @@ QString ApiWrap::exportDirectStoryLink(not_null<Data::Story*> story) {
 		? i->second
 		: fallback();
 	request(MTPstories_ExportStoryLink(
-		story->peer()->asUser()->inputUser,
+		peer->input,
 		MTP_int(story->id())
 	)).done([=](const MTPExportedStoryLink &result) {
 		const auto link = qs(result.data().vlink());
@@ -1885,17 +1886,8 @@ void ApiWrap::sendNotifySettingsUpdates() {
 	}
 	const auto &settings = session().data().notifySettings();
 	for (const auto type : base::take(_updateNotifyDefaults)) {
-		const auto input = [&] {
-			switch (type) {
-			case Data::DefaultNotify::User: return MTP_inputNotifyUsers();
-			case Data::DefaultNotify::Group: return MTP_inputNotifyChats();
-			case Data::DefaultNotify::Broadcast:
-				return MTP_inputNotifyBroadcasts();
-			}
-			Unexpected("Default notify type in sendNotifySettingsUpdates");
-		}();
 		request(MTPaccount_UpdateNotifySettings(
-			input,
+			Data::DefaultNotifyToMTP(type),
 			settings.defaultSettings(type).serialize()
 		)).afterDelay(kSmallDelayMs).send();
 	}
@@ -2443,7 +2435,13 @@ void ApiWrap::refreshFileReference(
 	};
 	v::match(origin.data, [&](Data::FileOriginMessage data) {
 		if (const auto item = _session->data().message(data)) {
-			if (item->isScheduled()) {
+			const auto media = item->media();
+			const auto storyId = media ? media->storyId() : FullStoryId();
+			if (storyId) {
+				request(MTPstories_GetStoriesByID(
+					_session->data().peer(storyId.peer)->input,
+					MTP_vector<MTPint>(1, MTP_int(storyId.story))));
+			} else if (item->isScheduled()) {
 				const auto &scheduled = _session->data().scheduledMessages();
 				const auto realId = scheduled.lookupId(item);
 				request(MTPmessages_GetScheduledMessages(
@@ -2540,14 +2538,9 @@ void ApiWrap::refreshFileReference(
 	}, [&](Data::FileOriginPremiumPreviews data) {
 		request(MTPhelp_GetPremiumPromo());
 	}, [&](Data::FileOriginStory data) {
-		const auto user = _session->data().peer(data.peerId)->asUser();
-		if (user) {
-			request(MTPstories_GetStoriesByID(
-				user->inputUser,
-				MTP_vector<MTPint>(1, MTP_int(data.storyId))));
-		} else {
-			fail();
-		}
+		request(MTPstories_GetStoriesByID(
+			_session->data().peer(data.peerId)->input,
+			MTP_vector<MTPint>(1, MTP_int(data.storyId))));
 	}, [&](v::null_t) {
 		fail();
 	});
@@ -3327,25 +3320,37 @@ void ApiWrap::shareContact(
 		const QString &phone,
 		const QString &firstName,
 		const QString &lastName,
-		const SendAction &action) {
+		const SendAction &action,
+		Fn<void(bool)> done) {
 	const auto userId = UserId(0);
-	sendSharedContact(phone, firstName, lastName, userId, action);
+	sendSharedContact(
+		phone,
+		firstName,
+		lastName,
+		userId,
+		action,
+		std::move(done));
 }
 
 void ApiWrap::shareContact(
 		not_null<UserData*> user,
-		const SendAction &action) {
+		const SendAction &action,
+		Fn<void(bool)> done) {
 	const auto userId = peerToUser(user->id);
 	const auto phone = _session->data().findContactPhone(user);
 	if (phone.isEmpty()) {
+		if (done) {
+			done(false);
+		}
 		return;
 	}
-	sendSharedContact(
+	return sendSharedContact(
 		phone,
 		user->firstName,
 		user->lastName,
 		userId,
-		action);
+		action,
+		std::move(done));
 }
 
 void ApiWrap::sendSharedContact(
@@ -3353,7 +3358,8 @@ void ApiWrap::sendSharedContact(
 		const QString &firstName,
 		const QString &lastName,
 		UserId userId,
-		const SendAction &action) {
+		const SendAction &action,
+		Fn<void(bool)> done) {
 	sendAction(action);
 
 	const auto history = action.history;
@@ -3404,7 +3410,7 @@ void ApiWrap::sendSharedContact(
 		MTP_string(firstName),
 		MTP_string(lastName),
 		MTP_string()); // vcard
-	sendMedia(item, media, action.options);
+	sendMedia(item, media, action.options, std::move(done));
 
 	_session->data().sendHistoryChangeNotifications();
 	_session->changes().historyUpdated(
@@ -3417,7 +3423,7 @@ void ApiWrap::sendSharedContact(
 void ApiWrap::sendVoiceMessage(
 		QByteArray result,
 		VoiceWaveform waveform,
-		int duration,
+		crl::time duration,
 		const SendAction &action) {
 	const auto caption = TextWithTags();
 	const auto to = fileLoadTaskOptions(action);
@@ -3935,18 +3941,20 @@ void ApiWrap::uploadAlbumMedia(
 void ApiWrap::sendMedia(
 		not_null<HistoryItem*> item,
 		const MTPInputMedia &media,
-		Api::SendOptions options) {
+		Api::SendOptions options,
+		Fn<void(bool)> done) {
 	const auto randomId = base::RandomValue<uint64>();
 	_session->data().registerMessageRandomId(randomId, item->fullId());
 
-	sendMediaWithRandomId(item, media, options, randomId);
+	sendMediaWithRandomId(item, media, options, randomId, std::move(done));
 }
 
 void ApiWrap::sendMediaWithRandomId(
 		not_null<HistoryItem*> item,
 		const MTPInputMedia &media,
 		Api::SendOptions options,
-		uint64 randomId) {
+		uint64 randomId,
+		Fn<void(bool)> done) {
 	const auto history = item->history();
 	const auto replyTo = item->replyTo();
 
@@ -3988,10 +3996,12 @@ void ApiWrap::sendMediaWithRandomId(
 			MTP_int(options.scheduled),
 			(options.sendAs ? options.sendAs->input : MTP_inputPeerEmpty())
 		), [=](const MTPUpdates &result, const MTP::Response &response) {
+		if (done) done(true);
 		if (updateRecentStickers) {
 			requestRecentStickersForce(true);
 		}
 	}, [=](const MTP::Error &error, const MTP::Response &response) {
+		if (done) done(false);
 		sendMessageFail(error, peer, randomId, itemId);
 	});
 }
@@ -4289,4 +4299,8 @@ Api::Premium &ApiWrap::premium() {
 
 Api::Usernames &ApiWrap::usernames() {
 	return *_usernames;
+}
+
+Api::Websites &ApiWrap::websites() {
+	return *_websites;
 }

@@ -48,19 +48,6 @@ struct InfographicDescriptor {
 	bool complexRatio = false;
 };
 
-[[nodiscard]] rpl::producer<> BoxShowFinishes(not_null<Ui::GenericBox*> box) {
-	const auto singleShot = box->lifetime().make_state<rpl::lifetime>();
-	const auto showFinishes = singleShot->make_state<rpl::event_stream<>>();
-
-	box->setShowFinishedCallback([=] {
-		showFinishes->fire({});
-		singleShot->destroy();
-		box->setShowFinishedCallback(nullptr);
-	});
-
-	return showFinishes->events();
-}
-
 void AddSubsectionTitle(
 		not_null<Ui::VerticalLayout*> container,
 		rpl::producer<QString> text) {
@@ -423,8 +410,9 @@ void SimpleLimitBox(
 	Settings::AddSkip(top, st::premiumInfographicPadding.top());
 	Ui::Premium::AddBubbleRow(
 		top,
+		st::defaultPremiumBubble,
 		BoxShowFinishes(box),
-		descriptor.defaultLimit,
+		0,
 		descriptor.current,
 		descriptor.premiumLimit,
 		premiumPossible,
@@ -694,7 +682,8 @@ void PublicLinksLimitBox(
 void FilterChatsLimitBox(
 		not_null<Ui::GenericBox*> box,
 		not_null<Main::Session*> session,
-		int currentCount) {
+		int currentCount,
+		bool include) {
 	const auto premium = session->premium();
 	const auto premiumPossible = session->premiumPossible();
 
@@ -707,10 +696,12 @@ void FilterChatsLimitBox(
 		premiumLimit);
 
 	auto text = rpl::combine(
-		tr::lng_filter_chats_limit1(
-			lt_count,
-			rpl::single(premium ? premiumLimit : defaultLimit),
-			Ui::Text::RichLangValue),
+		(include
+			? tr::lng_filter_chats_limit1
+			: tr::lng_filter_chats_exlude_limit1)(
+				lt_count,
+				rpl::single(premium ? premiumLimit : defaultLimit),
+				Ui::Text::RichLangValue),
 		((premium || !premiumPossible)
 			? rpl::single(TextWithEntities())
 			: tr::lng_filter_chats_limit2(
@@ -780,16 +771,18 @@ void FilterLinksLimitBox(
 
 void FiltersLimitBox(
 		not_null<Ui::GenericBox*> box,
-		not_null<Main::Session*> session) {
+		not_null<Main::Session*> session,
+		std::optional<int> filtersCountOverride) {
 	const auto premium = session->premium();
 	const auto premiumPossible = session->premiumPossible();
 
 	const auto limits = Data::PremiumLimits(session);
 	const auto defaultLimit = float64(limits.dialogFiltersDefault());
 	const auto premiumLimit = float64(limits.dialogFiltersPremium());
-	const auto current = float64(ranges::count_if(
+	const auto cloud = int(ranges::count_if(
 		session->data().chatsFilters().list(),
 		[](const Data::ChatFilter &f) { return f.id() != FilterId(); }));
+	const auto current = float64(filtersCountOverride.value_or(cloud));
 
 	auto text = rpl::combine(
 		tr::lng_filters_limit1(
@@ -1089,6 +1082,7 @@ void AccountsLimitBox(
 	Settings::AddSkip(top, st::premiumInfographicPadding.top());
 	Ui::Premium::AddBubbleRow(
 		top,
+		st::defaultPremiumBubble,
 		BoxShowFinishes(box),
 		0,
 		current,

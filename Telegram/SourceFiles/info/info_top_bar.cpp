@@ -23,7 +23,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/main_session.h"
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/labels.h"
-#include "ui/widgets/input_fields.h"
+#include "ui/widgets/fields/input_field.h"
 #include "ui/widgets/shadow.h"
 #include "ui/wrap/fade_wrap.h"
 #include "ui/wrap/padding_wrap.h"
@@ -253,7 +253,8 @@ void TopBar::createSearchView(
 	};
 
 	cancel->addClickHandler(cancelSearch);
-	field->connect(field, &Ui::InputField::cancelled, cancelSearch);
+	field->cancelled(
+	) | rpl::start_with_next(cancelSearch, field->lifetime());
 
 	wrap->widthValue(
 	) | rpl::start_with_next([=](int newWidth) {
@@ -513,7 +514,7 @@ void TopBar::setStories(rpl::producer<Dialogs::Stories::Content> content) {
 		rpl::duplicate(
 			last
 		) | rpl::start_with_next([=](const Content &content) {
-			const auto count = int(content.elements.size());
+			const auto count = content.total;
 			if (_storiesCount != count) {
 				const auto was = (_storiesCount > 0);
 				_storiesCount = count;

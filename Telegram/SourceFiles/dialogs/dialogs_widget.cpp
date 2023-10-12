@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "dialogs/dialogs_widget.h"
 
+#include "base/options.h"
 #include "dialogs/ui/dialogs_stories_content.h"
 #include "dialogs/ui/dialogs_stories_list.h"
 #include "dialogs/dialogs_inner_widget.h"
@@ -22,7 +23,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "boxes/peers/edit_peer_requests_box.h"
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/elastic_scroll.h"
-#include "ui/widgets/input_fields.h"
+#include "ui/widgets/fields/input_field.h"
 #include "ui/wrap/fade_wrap.h"
 #include "ui/effects/radial_animation.h"
 #include "ui/chat/requests_bar.h"
@@ -78,6 +79,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include <QtCore/QMimeData>
 #include <QtWidgets/QScrollBar>
+#include <QtWidgets/QTextEdit>
 
 namespace Dialogs {
 namespace {
@@ -85,7 +87,15 @@ namespace {
 constexpr auto kSearchPerPage = 50;
 constexpr auto kStoriesExpandDuration = crl::time(200);
 
+base::options::toggle OptionForumHideChatsList({
+	.id = kOptionForumHideChatsList,
+	.name = "Hide chats list in forums",
+	.description = "Don't keep a narrow column of chats list.",
+});
+
 } // namespace
+
+const char kOptionForumHideChatsList[] = "forum-hide-chats-list";
 
 class Widget::BottomButton : public Ui::RippleButton {
 public:
@@ -121,7 +131,7 @@ Widget::BottomButton::BottomButton(
 	const style::icon &icon,
 	const style::icon &iconOver)
 : RippleButton(parent, st.ripple)
-, _text(text.toUpper())
+, _text(text)
 , _st(st)
 , _icon(icon)
 , _iconOver(iconOver) {
@@ -129,7 +139,7 @@ Widget::BottomButton::BottomButton(
 }
 
 void Widget::BottomButton::setText(const QString &text) {
-	_text = text.toUpper();
+	_text = text;
 	update();
 }
 
@@ -340,12 +350,12 @@ Widget::Widget(
 		Ui::PostponeCall(this, [=] { listScrollUpdated(); });
 	}, lifetime());
 
-	QObject::connect(_filter, &Ui::InputField::changed, [=] {
+	_filter->changes(
+	) | rpl::start_with_next([=] {
 		applyFilterUpdate();
-	});
-	QObject::connect(_filter, &Ui::InputField::submitted, [=] {
-		submit();
-	});
+	}, _filter->lifetime());
+	_filter->submits(
+	) | rpl::start_with_next([=] { submit(); }, _filter->lifetime());
 	QObject::connect(
 		_filter->rawTextEdit().get(),
 		&QTextEdit::cursorPositionChanged,
@@ -526,14 +536,12 @@ void Widget::chosenRow(const ChosenRow &row) {
 		return;
 	} else if (history) {
 		const auto peer = history->peer;
-		if (const auto user = peer->asUser()) {
-			if (row.message.fullId.msg == ShowAtUnreadMsgId) {
-				if (row.userpicClick
-					&& user->hasActiveStories()
-					&& !user->isSelf()) {
-					controller()->openPeerStories(user->id);
-					return;
-				}
+		if (row.message.fullId.msg == ShowAtUnreadMsgId) {
+			if (row.userpicClick
+				&& peer->hasActiveStories()
+				&& !peer->isSelf()) {
+				controller()->openPeerStories(peer->id);
+				return;
 			}
 		}
 		const auto showAtMsgId = controller()->uniqueChatsInSearchResults()
@@ -1446,6 +1454,8 @@ void Widget::startWidthAnimation() {
 		st::columnMinimalWidthLeft,
 		scrollGeometry.height());
 	_scroll->setGeometry(grabGeometry);
+	_inner->resize(st::columnMinimalWidthLeft, _inner->height());
+	_inner->setNarrowRatio(0.);
 	Ui::SendPendingMoveResizeEvents(_scroll);
 	auto image = QImage(
 		grabGeometry.size() * cIntRetinaFactor(),
@@ -1457,7 +1467,10 @@ void Widget::startWidthAnimation() {
 		Ui::RenderWidget(p, _scroll);
 	}
 	_widthAnimationCache = Ui::PixmapFromImage(std::move(image));
-	_scroll->setGeometry(scrollGeometry);
+	if (scrollGeometry != grabGeometry) {
+		_scroll->setGeometry(scrollGeometry);
+		updateControlsGeometry();
+	}
 	_scroll->hide();
 	updateStoriesVisibility();
 }
@@ -2395,7 +2408,8 @@ void Widget::showForum(
 		const Window::SectionShow &params) {
 	if (!params.childColumn
 		|| !Core::App().settings().dialogsWidthRatio()
-		|| (_layout != Layout::Main)) {
+		|| (_layout != Layout::Main)
+		|| OptionForumHideChatsList.value()) {
 		changeOpenedForum(forum, params.animated);
 		return;
 	}

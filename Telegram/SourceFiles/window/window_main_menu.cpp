@@ -30,10 +30,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/empty_userpic.h"
 #include "ui/unread_badge_paint.h"
 #include "base/call_delayed.h"
+#include "inline_bots/bot_attach_web_view.h"
 #include "mainwindow.h"
 #include "storage/localstorage.h"
 #include "storage/storage_account.h"
 #include "support/support_templates.h"
+#include "settings/settings_advanced.h"
 #include "settings/settings_common.h"
 #include "settings/settings_calls.h"
 #include "settings/settings_information.h"
@@ -63,6 +65,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_changes.h"
 #include "data/data_stories.h"
 #include "mainwidget.h"
+#include "styles/style_chat.h" // popupMenuExpandedSeparator
 #include "styles/style_window.h"
 #include "styles/style_widgets.h"
 #include "styles/style_dialogs.h"
@@ -194,6 +197,98 @@ void ShowCallsBox(not_null<Window::SessionController*> window) {
 			? tr::lng_menu_change_status
 			: tr::lng_menu_set_status)(makeLink);
 	}) | rpl::flatten_latest();
+}
+
+void SetupMenuBots(
+		not_null<Ui::VerticalLayout*> container,
+		not_null<Window::SessionController*> controller) {
+	const auto wrap = container->add(
+		object_ptr<Ui::VerticalLayout>(container));
+	const auto bots = &controller->session().attachWebView();
+
+	rpl::single(
+		rpl::empty
+	) | rpl::then(
+		bots->attachBotsUpdates()
+	) | rpl::start_with_next([=] {
+		const auto width = container->widthNoMargins();
+		wrap->clear();
+		for (const auto &bot : bots->attachBots()) {
+			if (!bot.inMainMenu) {
+				continue;
+			}
+			const auto button = Settings::AddButton(
+				wrap,
+				rpl::single(bot.name),
+				st::mainMenuButton);
+			const auto menu = button->lifetime().make_state<
+				base::unique_qptr<Ui::PopupMenu>
+			>();
+			const auto icon = Ui::CreateChild<InlineBots::MenuBotIcon>(
+				button.get(),
+				bot.media);
+			button->heightValue(
+			) | rpl::start_with_next([=](int height) {
+				icon->move(
+					st::mainMenuButton.iconLeft,
+					(height - icon->height()) / 2);
+			}, button->lifetime());
+			const auto user = bot.user;
+			const auto weak = Ui::MakeWeak(container);
+			button->setAcceptBoth(true);
+			button->clicks(
+			) | rpl::start_with_next([=](Qt::MouseButton which) {
+				if (which == Qt::LeftButton) {
+					bots->requestSimple(controller, user, {
+						.fromMainMenu = true,
+					});
+					if (weak) {
+						controller->window().hideSettingsAndLayer();
+					}
+				} else {
+					(*menu) = nullptr;
+					(*menu) = base::make_unique_q<Ui::PopupMenu>(
+						button,
+						st::popupMenuWithIcons);
+					(*menu)->addAction(
+						tr::lng_bot_remove_from_menu(tr::now),
+						[=] { bots->removeFromMenu(user); },
+						&st::menuIconDelete);
+					(*menu)->popup(QCursor::pos());
+				}
+			}, button->lifetime());
+
+			const auto badge = bots->showMainMenuNewBadge(bot)
+				? Ui::CreateChild<Ui::PaddingWrap<Ui::FlatLabel>>(
+					button.get(),
+					object_ptr<Ui::FlatLabel>(
+						button,
+						tr::lng_bot_side_menu_new(),
+						st::settingsPremiumNewBadge),
+					st::settingsPremiumNewBadgePadding)
+				: nullptr;
+			if (badge) {
+				badge->setAttribute(Qt::WA_TransparentForMouseEvents);
+				badge->paintRequest() | rpl::start_with_next([=] {
+					auto p = QPainter(badge);
+					auto hq = PainterHighQualityEnabler(p);
+					p.setPen(Qt::NoPen);
+					p.setBrush(st::windowBgActive);
+					const auto r = st::settingsPremiumNewBadgePadding.left();
+					p.drawRoundedRect(badge->rect(), r, r);
+				}, badge->lifetime());
+
+				button->sizeValue(
+				) | rpl::start_with_next([=](QSize size) {
+					badge->moveToRight(
+						st::mainMenuButton.padding.right(),
+						(size.height() - badge->height()) / 2,
+						size.width());
+				}, badge->lifetime());
+			}
+		}
+		wrap->resizeToWidth(width);
+	}, wrap->lifetime());
 }
 
 } // namespace
@@ -602,7 +697,7 @@ void MainMenu::setupArchive() {
 		}
 		_contextMenu = base::make_unique_q<Ui::PopupMenu>(
 			this,
-			st::popupMenuWithIcons);
+			st::popupMenuExpandedSeparator);
 		const auto addAction = PeerMenuCallback([&](
 				PeerMenuCallback::Args a) {
 			return _contextMenu->addAction(
@@ -625,6 +720,12 @@ void MainMenu::setupArchive() {
 			controller,
 			[f = folder()] { return f->chatsList(); },
 			addAction);
+
+		_contextMenu->addSeparator();
+		Settings::PreloadArchiveSettings(&controller->session());
+		addAction(tr::lng_context_archive_settings(tr::now), [=] {
+			controller->show(Box(Settings::ArchiveSettingsBox, controller));
+		}, &st::menuIconManage);
 
 		_contextMenu->popup(QCursor::pos());
 	}, button->lifetime());
@@ -758,16 +859,19 @@ void MainMenu::setupMenu() {
 					tr::lng_menu_my_stories(),
 					st::mainMenuButton,
 					IconDescriptor{ &st::menuIconStoriesSavedSection })));
+		const auto selfId = controller->session().userPeerId();
 		const auto stories = &controller->session().data().stories();
-		if (stories->archiveCount() > 0) {
+		if (stories->archiveCount(selfId) > 0) {
 			wrap->toggle(true, anim::type::instant);
 		} else {
 			wrap->toggle(false, anim::type::instant);
-			if (!stories->archiveCountKnown()) {
-				stories->archiveLoadMore();
+			if (!stories->archiveCountKnown(selfId)) {
+				stories->archiveLoadMore(selfId);
 				wrap->toggleOn(stories->archiveChanged(
+				) | rpl::filter(
+					rpl::mappers::_1 == selfId
 				) | rpl::map([=] {
-					return stories->archiveCount() > 0;
+					return stories->archiveCount(selfId) > 0;
 				}) | rpl::filter(rpl::mappers::_1) | rpl::take(1));
 			}
 		}
@@ -775,6 +879,8 @@ void MainMenu::setupMenu() {
 			controller->showSection(
 				Info::Stories::Make(controller->session().user()));
 		});
+
+		SetupMenuBots(_menu, controller);
 
 		addAction(
 			tr::lng_menu_contacts(),

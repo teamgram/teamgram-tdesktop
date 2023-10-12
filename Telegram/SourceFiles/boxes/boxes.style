@@ -53,12 +53,12 @@ boxPhotoCaptionSkip: 8px;
 defaultChangeUserpicIcon: icon {{ "new_chat_photo", activeButtonFg }};
 defaultUploadUserpicIcon: icon {{ "upload_chat_photo", msgDateImgFg }};
 defaultUserpicButton: UserpicButton {
-	size: size(76px, 76px);
-	photoSize: 76px;
+	size: size(72px, 72px);
+	photoSize: 72px;
 	photoPosition: point(-1px, -1px);
 	changeButton: defaultActiveButton;
 	changeIcon: defaultChangeUserpicIcon;
-	changeIconPosition: point(23px, 25px);
+	changeIconPosition: point(21px, 23px);
 	duration: 500;
 	uploadHeight: 24px;
 	uploadBg: msgDateImgBgOver;
@@ -607,7 +607,7 @@ groupStickersField: InputField(defaultMultiSelectSearchField) {
 	textBg: boxBg;
 	heightMin: 32px;
 }
-groupStickersSubTitleHeight: 36px;
+groupStickersSubTitleHeight: 48px;
 
 proxyUsePadding: margins(22px, 6px, 22px, 5px);
 proxyTryIPv6Padding: margins(22px, 8px, 22px, 5px);

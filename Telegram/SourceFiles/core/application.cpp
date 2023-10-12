@@ -123,7 +123,7 @@ void SetCrashAnnotationsGL() {
 		case Ui::GL::ANGLE::D3D11: return "Direct3D 11";
 		case Ui::GL::ANGLE::D3D9: return "Direct3D 9";
 		case Ui::GL::ANGLE::D3D11on12: return "D3D11on12";
-		case Ui::GL::ANGLE::OpenGL: return "OpenGL";
+		//case Ui::GL::ANGLE::OpenGL: return "OpenGL";
 		}
 		Unexpected("Ui::GL::CurrentANGLE value in SetupANGLE.");
 	}());
@@ -512,14 +512,16 @@ void Application::startMediaView() {
 	InvokeQueued(this, [=] {
 		_mediaView = std::make_unique<Media::View::OverlayWidget>();
 	});
-#else // Q_OS_MAC
+#elif defined Q_OS_WIN // Q_OS_MAC || Q_OS_WIN
 	// On Windows we needed such hack for the main window, otherwise
 	// somewhere inside the media viewer creating code its geometry
 	// was broken / lost to some invalid values.
 	const auto current = _lastActivePrimaryWindow->widget()->geometry();
 	_mediaView = std::make_unique<Media::View::OverlayWidget>();
 	_lastActivePrimaryWindow->widget()->Ui::RpWidget::setGeometry(current);
-#endif // Q_OS_MAC
+#else
+	_mediaView = std::make_unique<Media::View::OverlayWidget>();
+#endif // Q_OS_MAC || Q_OS_WIN
 }
 
 void Application::startTray() {

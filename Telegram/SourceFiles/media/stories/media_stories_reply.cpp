@@ -11,6 +11,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "api/api_sending.h"
 #include "apiwrap.h"
 #include "base/call_delayed.h"
+#include "base/timer_rpl.h"
+#include "base/unixtime.h"
 #include "boxes/premium_limits_box.h"
 #include "boxes/send_files_box.h"
 #include "chat_helpers/compose/compose_show.h"
@@ -30,6 +32,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "lang/lang_keys.h"
 #include "main/main_session.h"
 #include "media/stories/media_stories_controller.h"
+#include "media/stories/media_stories_stealth.h"
 #include "menu/menu_send.h"
 #include "storage/localimageloader.h"
 #include "storage/storage_account.h"
@@ -42,6 +45,35 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_media_view.h"
 
 namespace Media::Stories {
+namespace {
+
+[[nodiscard]] rpl::producer<QString> PlaceholderText(
+		const std::shared_ptr<ChatHelpers::Show> &show) {
+	return show->session().data().stories().stealthModeValue(
+	) | rpl::map([](Data::StealthMode value) {
+		return value.enabledTill;
+	}) | rpl::distinct_until_changed() | rpl::map([](TimeId till) {
+		return rpl::single(
+			rpl::empty
+		) | rpl::then(
+			base::timer_each(250)
+		) | rpl::map([=] {
+			return till - base::unixtime::now();
+		}) | rpl::take_while([](TimeId left) {
+			return left > 0;
+		}) | rpl::then(
+			rpl::single(0)
+		) | rpl::map([](TimeId left) {
+			return left
+				? tr::lng_stealth_mode_countdown(
+					lt_left,
+					rpl::single(TimeLeftText(left)))
+				: tr::lng_story_reply_ph();
+		}) | rpl::flatten_latest();
+	}) | rpl::flatten_latest();
+}
+
+} // namespace
 
 class ReplyArea::Cant final : public Ui::RpWidget {
 public:
@@ -85,10 +117,11 @@ ReplyArea::ReplyArea(not_null<Controller*> controller)
 		.mode = HistoryView::ComposeControlsMode::Normal,
 		.sendMenuType = SendMenu::Type::SilentOnly,
 		.stickerOrEmojiChosen = _controller->stickerOrEmojiChosen(),
-		.customPlaceholder = tr::lng_story_reply_ph(),
+		.customPlaceholder = PlaceholderText(_controller->uiShow()),
 		.voiceCustomCancelText = tr::lng_record_cancel_stories(tr::now),
 		.voiceLockFromBottom = true,
 		.features = {
+			.likes = true,
 			.sendAs = false,
 			.ttlInfo = false,
 			.botCommandSend = false,
@@ -138,13 +171,13 @@ void ReplyArea::initGeometry() {
 }
 
 void ReplyArea::sendReaction(const Data::ReactionId &id) {
-	Expects(_data.user != nullptr);
+	Expects(_data.peer != nullptr);
 
 	auto message = Api::MessageToSend(prepareSendAction({}));
 	if (const auto emoji = id.emoji(); !emoji.isEmpty()) {
 		message.textWithTags = { emoji };
 	} else if (const auto customId = id.custom()) {
-		const auto document = _data.user->owner().document(customId);
+		const auto document = _data.peer->owner().document(customId);
 		if (const auto sticker = document->sticker()) {
 			const auto text = sticker->alt;
 			const auto id = Data::SerializeCustomEmojiId(customId);
@@ -174,7 +207,7 @@ void ReplyArea::send(
 		Api::SendOptions options,
 		bool skipToast) {
 	const auto error = GetErrorTextForSending(
-		_data.user,
+		_data.peer,
 		{
 			.topicRootId = MsgId(0),
 			.text = &message.textWithTags,
@@ -206,11 +239,11 @@ bool ReplyArea::sendExistingDocument(
 		not_null<DocumentData*> document,
 		Api::SendOptions options,
 		std::optional<MsgId> localId) {
-	Expects(_data.user != nullptr);
+	Expects(_data.peer != nullptr);
 
 	const auto show = _controller->uiShow();
 	const auto error = Data::RestrictionError(
-		_data.user,
+		_data.peer,
 		ChatRestriction::SendStickers);
 	if (error) {
 		show->showToast(*error);
@@ -236,11 +269,11 @@ void ReplyArea::sendExistingPhoto(not_null<PhotoData*> photo) {
 bool ReplyArea::sendExistingPhoto(
 		not_null<PhotoData*> photo,
 		Api::SendOptions options) {
-	Expects(_data.user != nullptr);
+	Expects(_data.peer != nullptr);
 
 	const auto show = _controller->uiShow();
 	const auto error = Data::RestrictionError(
-		_data.user,
+		_data.peer,
 		ChatRestriction::SendPhotos);
 	if (error) {
 		show->showToast(*error);
@@ -315,7 +348,7 @@ bool ReplyArea::showSendingFilesError(
 		const Ui::PreparedList &list,
 		std::optional<bool> compress) const {
 	const auto text = [&] {
-		const auto peer = _data.user;
+		const auto peer = _data.peer;
 		const auto error = Data::FileRestrictionError(peer, list, compress);
 		if (error) {
 			return *error;
@@ -350,29 +383,29 @@ bool ReplyArea::showSendingFilesError(
 }
 
 not_null<History*> ReplyArea::history() const {
-	Expects(_data.user != nullptr);
+	Expects(_data.peer != nullptr);
 
-	return _data.user->owner().history(_data.user);
+	return _data.peer->owner().history(_data.peer);
 }
 
 Api::SendAction ReplyArea::prepareSendAction(
 		Api::SendOptions options) const {
-	Expects(_data.user != nullptr);
+	Expects(_data.peer != nullptr);
 
 	auto result = Api::SendAction(history(), options);
 	result.options.sendAs = _controls->sendAsPeer();
-	result.replyTo.storyId = { .peer = _data.user->id, .story = _data.id };
+	result.replyTo.storyId = { .peer = _data.peer->id, .story = _data.id };
 	return result;
 }
 
 void ReplyArea::chooseAttach(
 		std::optional<bool> overrideSendImagesAsPhotos) {
 	_chooseAttachRequest = false;
-	if (!_data.user) {
+	if (!_data.peer) {
 		return;
 	}
-	const auto user = not_null(_data.user);
-	if (const auto error = Data::AnyFileRestrictionError(user)) {
+	const auto peer = not_null(_data.peer);
+	if (const auto error = Data::AnyFileRestrictionError(peer)) {
 		_controller->uiShow()->showToast(*error);
 		return;
 	}
@@ -380,7 +413,7 @@ void ReplyArea::chooseAttach(
 	const auto filter = (overrideSendImagesAsPhotos == true)
 		? FileDialog::ImagesOrAllFilter()
 		: FileDialog::AllOrImagesFilter();
-	const auto weak = make_weak(&_shownUserGuard);
+	const auto weak = make_weak(&_shownPeerGuard);
 	const auto callback = [=](FileDialog::OpenResult &&result) {
 		const auto guard = gsl::finally([&] {
 			_choosingAttach = false;
@@ -471,8 +504,8 @@ bool ReplyArea::confirmSendingFiles(
 		.show = show,
 		.list = std::move(list),
 		.caption = _controls->getTextWithAppliedMarkdown(),
-		.limits = DefaultLimitsForPeer(_data.user),
-		.check = DefaultCheckForPeer(show, _data.user),
+		.limits = DefaultLimitsForPeer(_data.peer),
+		.check = DefaultCheckForPeer(show, _data.peer),
 		.sendType = Api::SendType::Normal,
 		.sendMenuType = SendMenu::Type::SilentOnly,
 		.stOverride = &st::storiesComposeControls,
@@ -500,7 +533,7 @@ void ReplyArea::sendingFilesConfirmed(
 	auto groups = DivideByGroups(
 		std::move(list),
 		way,
-		_data.user->slowmodeApplied());
+		_data.peer->slowmodeApplied());
 	const auto type = way.sendImagesAsPhotos()
 		? SendMediaType::Photo
 		: SendMediaType::File;
@@ -588,6 +621,11 @@ void ReplyArea::initActions() {
 		sendInlineResult(chosen.result, chosen.bot, chosen.options, localId);
 	}, _lifetime);
 
+	_controls->likeToggled(
+	) | rpl::start_with_next([=] {
+		_controller->toggleLiked();
+	}, _lifetime);
+
 	_controls->setMimeDataHook([=](
 			not_null<const QMimeData*> data,
 			Ui::InputField::MimeAction action) {
@@ -611,27 +649,35 @@ void ReplyArea::initActions() {
 	_controls->showFinished();
 }
 
-void ReplyArea::show(ReplyAreaData data) {
+void ReplyArea::show(
+		ReplyAreaData data,
+		rpl::producer<Data::ReactionId> likedValue) {
 	if (_data == data) {
 		return;
 	}
-	const auto userChanged = (_data.user != data.user);
+	const auto peerChanged = (_data.peer != data.peer);
 	_data = data;
-	if (!userChanged) {
-		if (_data.user) {
+	if (!peerChanged) {
+		if (_data.peer) {
 			_controls->clear();
 		}
 		return;
 	}
-	invalidate_weak_ptrs(&_shownUserGuard);
-	const auto user = data.user;
-	const auto history = user ? user->owner().history(user).get() : nullptr;
+	invalidate_weak_ptrs(&_shownPeerGuard);
+	const auto peer = data.peer;
+	const auto history = peer ? peer->owner().history(peer).get() : nullptr;
 	_controls->setHistory({
 		.history = history,
+		.liked = std::move(
+			likedValue
+		) | rpl::map([](const Data::ReactionId &id) {
+			return !id.empty();
+		}),
 	});
 	_controls->clear();
-	const auto hidden = user && user->isSelf();
-	const auto cant = !user || user->isServiceUser();
+	const auto hidden = peer
+		&& (!peer->isUser() || peer->isSelf() || peer->isServiceUser());
+	const auto cant = !peer;
 	if (!hidden && !cant) {
 		_controls->show();
 	} else {
@@ -653,9 +699,13 @@ void ReplyArea::show(ReplyAreaData data) {
 }
 
 Main::Session &ReplyArea::session() const {
-	Expects(_data.user != nullptr);
+	Expects(_data.peer != nullptr);
 
-	return _data.user->session();
+	return _data.peer->session();
+}
+
+bool ReplyArea::focused() const {
+	return _controls->focused();
 }
 
 rpl::producer<bool> ReplyArea::focusedValue() const {
@@ -684,6 +734,10 @@ bool ReplyArea::ignoreWindowMove(QPoint position) const {
 
 void ReplyArea::tryProcessKeyInput(not_null<QKeyEvent*> e) {
 	_controls->tryProcessKeyInput(e);
+}
+
+not_null<Ui::RpWidget*> ReplyArea::likeAnimationTarget() const {
+	return _controls->likeAnimationTarget();
 }
 
 void ReplyArea::showPremiumToast(not_null<DocumentData*> emoji) {

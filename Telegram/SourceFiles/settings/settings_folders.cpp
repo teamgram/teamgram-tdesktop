@@ -30,7 +30,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/text/text_utilities.h"
 #include "ui/widgets/box_content_divider.h"
 #include "ui/widgets/buttons.h"
-#include "ui/widgets/input_fields.h"
+#include "ui/widgets/fields/input_field.h"
 #include "ui/widgets/labels.h"
 #include "ui/wrap/slide_wrap.h"
 #include "window/window_controller.h"
@@ -362,10 +362,11 @@ void FilterRowButton::paintEvent(QPaintEvent *e) {
 		const auto removed = ranges::count_if(
 			state->rows,
 			&FilterRow::removed);
-		if (state->rows.size() < limit() + removed) {
+		const auto count = int(state->rows.size() - removed);
+		if (count < limit()) {
 			return false;
 		}
-		controller->show(Box(FiltersLimitBox, session));
+		controller->show(Box(FiltersLimitBox, session, count));
 		return true;
 	};
 	const auto markForRemovalSure = [=](not_null<FilterRowButton*> button) {
@@ -543,7 +544,7 @@ void FilterRowButton::paintEvent(QPaintEvent *e) {
 		container,
 		tr::lng_filters_create(),
 		st::settingsButtonActive,
-		{ &st::settingsIconAdd, 0, IconType::Round, &st::windowBgActive }
+		{ &st::settingsIconAdd, IconType::Round, &st::windowBgActive }
 	)->setClickedCallback([=] {
 		if (showLimitReached()) {
 			return;

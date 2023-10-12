@@ -315,25 +315,12 @@ Panel::Progress::Progress(QWidget *parent, Fn<QRect()> rect)
 Panel::Panel(
 	const QString &userDataPath,
 	rpl::producer<QString> title,
-	Fn<bool(QString)> handleLocalUri,
-	Fn<void(QString)> handleInvoice,
-	Fn<void(QByteArray)> sendData,
-	Fn<void(std::vector<QString>, QString)> switchInlineQuery,
-	Fn<void()> close,
-	QString phone,
+	not_null<Delegate*> delegate,
 	MenuButtons menuButtons,
-	Fn<void(MenuButton)> handleMenuButton,
-	Fn<Webview::ThemeParams()> themeParams,
 	bool allowClipboardRead)
 : _userDataPath(userDataPath)
-, _handleLocalUri(std::move(handleLocalUri))
-, _handleInvoice(std::move(handleInvoice))
-, _sendData(std::move(sendData))
-, _switchInlineQuery(std::move(switchInlineQuery))
-, _close(std::move(close))
-, _phone(phone)
+, _delegate(delegate)
 , _menuButtons(menuButtons)
-, _handleMenuButton(std::move(handleMenuButton))
 , _widget(std::make_unique<SeparatePanel>())
 , _allowClipboardRead(allowClipboardRead) {
 	_widget->setInnerSize(st::paymentsPanelSize);
@@ -344,14 +331,16 @@ Panel::Panel(
 		if (_closeNeedConfirmation) {
 			scheduleCloseWithConfirmation();
 		} else {
-			_close();
+			_delegate->botClose();
 		}
 	}, _widget->lifetime());
 
 	_widget->closeEvents(
 	) | rpl::filter([=] {
 		return !_hiddenForPayment;
-	}) | rpl::start_with_next(_close, _widget->lifetime());
+	}) | rpl::start_with_next([=] {
+		_delegate->botClose();
+	}, _widget->lifetime());
 
 	_widget->backRequests(
 	) | rpl::start_with_next([=] {
@@ -367,7 +356,7 @@ Panel::Panel(
 		_themeUpdateScheduled = true;
 		crl::on_main(_widget.get(), [=] {
 			_themeUpdateScheduled = false;
-			updateThemeParams(themeParams());
+			updateThemeParams(_delegate->botThemeParams());
 		});
 	}, _widget->lifetime());
 
@@ -505,7 +494,7 @@ bool Panel::showWebview(
 		const QString &url,
 		const Webview::ThemeParams &params,
 		rpl::producer<QString> bottomText) {
-	if (!_webview && !createWebview()) {
+	if (!_webview && !createWebview(params)) {
 		return false;
 	}
 	const auto allowBack = false;
@@ -540,18 +529,23 @@ bool Panel::showWebview(
 		}
 		if (_menuButtons & MenuButton::OpenBot) {
 			callback(tr::lng_bot_open(tr::now), [=] {
-				_handleMenuButton(MenuButton::OpenBot);
+				_delegate->botHandleMenuButton(MenuButton::OpenBot);
 			}, &st::menuIconLeave);
 		}
 		callback(tr::lng_bot_reload_page(tr::now), [=] {
 			_webview->window.reload();
 		}, &st::menuIconRestore);
-		if (_menuButtons & MenuButton::RemoveFromMenu) {
+		const auto main = (_menuButtons & MenuButton::RemoveFromMainMenu);
+		if (main || (_menuButtons & MenuButton::RemoveFromMenu)) {
 			const auto handler = [=] {
-				_handleMenuButton(MenuButton::RemoveFromMenu);
+				_delegate->botHandleMenuButton(main
+					? MenuButton::RemoveFromMainMenu
+					: MenuButton::RemoveFromMenu);
 			};
 			callback({
-				.text = tr::lng_bot_remove_from_menu(tr::now),
+				.text = (main
+					? tr::lng_bot_remove_from_side_menu
+					: tr::lng_bot_remove_from_menu)(tr::now),
 				.handler = handler,
 				.icon = &st::menuIconDeleteAttention,
 				.isAttention = true,
@@ -561,7 +555,7 @@ bool Panel::showWebview(
 	return true;
 }
 
-bool Panel::createWebview() {
+bool Panel::createWebview(const Webview::ThemeParams &params) {
 	auto outer = base::make_unique_q<RpWidget>(_widget.get());
 	const auto container = outer.get();
 	_widget->showInner(std::move(outer));
@@ -586,6 +580,7 @@ bool Panel::createWebview() {
 	_webview = std::make_unique<WebviewWithLifetime>(
 		container,
 		Webview::WindowConfig{
+			.opaqueBg = params.opaqueBg,
 			.userDataPath = _userDataPath,
 		});
 	const auto raw = &_webview->window;
@@ -624,7 +619,7 @@ bool Panel::createWebview() {
 		const auto command = list.at(0).toString();
 		const auto arguments = ParseMethodArgs(list.at(1).toString());
 		if (command == "web_app_close") {
-			_close();
+			_delegate->botClose();
 		} else if (command == "web_app_data_send") {
 			sendDataMessage(arguments);
 		} else if (command == "web_app_switch_inline_query") {
@@ -645,17 +640,23 @@ bool Panel::createWebview() {
 			openInvoice(arguments);
 		} else if (command == "web_app_open_popup") {
 			openPopup(arguments);
+		} else if (command == "web_app_request_write_access") {
+			requestWriteAccess();
 		} else if (command == "web_app_request_phone") {
 			requestPhone();
+		} else if (command == "web_app_invoke_custom_method") {
+			invokeCustomMethod(arguments);
 		} else if (command == "web_app_setup_closing_behavior") {
 			setupClosingBehaviour(arguments);
 		} else if (command == "web_app_read_text_from_clipboard") {
 			requestClipboardText(arguments);
+		} else if (command == "web_app_set_header_color") {
+			processHeaderColor(arguments);
 		}
 	});
 
 	raw->setNavigationStartHandler([=](const QString &uri, bool newWindow) {
-		if (_handleLocalUri(uri)) {
+		if (_delegate->botHandleLocalUri(uri)) {
 			return false;
 		} else if (newWindow) {
 			return true;
@@ -694,27 +695,27 @@ void Panel::setTitle(rpl::producer<QString> title) {
 
 void Panel::sendDataMessage(const QJsonObject &args) {
 	if (args.isEmpty()) {
-		_close();
+		_delegate->botClose();
 		return;
 	}
 	const auto data = args["data"].toString();
 	if (data.isEmpty()) {
 		LOG(("BotWebView Error: Bad 'data' in sendDataMessage."));
-		_close();
+		_delegate->botClose();
 		return;
 	}
-	_sendData(data.toUtf8());
+	_delegate->botSendData(data.toUtf8());
 }
 
 void Panel::switchInlineQueryMessage(const QJsonObject &args) {
 	if (args.isEmpty()) {
-		_close();
+		_delegate->botClose();
 		return;
 	}
 	const auto query = args["query"].toString();
 	if (query.isEmpty()) {
 		LOG(("BotWebView Error: Bad 'query' in switchInlineQueryMessage."));
-		_close();
+		_delegate->botClose();
 		return;
 	}
 	const auto valid = base::flat_set<QString>{
@@ -735,26 +736,26 @@ void Panel::switchInlineQueryMessage(const QJsonObject &args) {
 			break;
 		}
 	}
-	_switchInlineQuery(types, query);
+	_delegate->botSwitchInlineQuery(types, query);
 }
 
 void Panel::openTgLink(const QJsonObject &args) {
 	if (args.isEmpty()) {
-		_close();
+		_delegate->botClose();
 		return;
 	}
 	const auto path = args["path_full"].toString();
 	if (path.isEmpty()) {
 		LOG(("BotWebView Error: Bad 'path_full' in openTgLink."));
-		_close();
+		_delegate->botClose();
 		return;
 	}
-	_handleLocalUri("https://teamgram.me" + path);
+	_delegate->botHandleLocalUri("https://teamgram.me" + path);
 }
 
 void Panel::openExternalLink(const QJsonObject &args) {
 	if (args.isEmpty()) {
-		_close();
+		_delegate->botClose();
 		return;
 	}
 	const auto url = args["url"].toString();
@@ -762,7 +763,7 @@ void Panel::openExternalLink(const QJsonObject &args) {
 	if (url.isEmpty()
 		|| (!lower.startsWith("http://") && !lower.startsWith("https://"))) {
 		LOG(("BotWebView Error: Bad 'url' in openExternalLink."));
-		_close();
+		_delegate->botClose();
 		return;
 	} else if (!allowOpenLink()) {
 		return;
@@ -772,21 +773,21 @@ void Panel::openExternalLink(const QJsonObject &args) {
 
 void Panel::openInvoice(const QJsonObject &args) {
 	if (args.isEmpty()) {
-		_close();
+		_delegate->botClose();
 		return;
 	}
 	const auto slug = args["slug"].toString();
 	if (slug.isEmpty()) {
 		LOG(("BotWebView Error: Bad 'slug' in openInvoice."));
-		_close();
+		_delegate->botClose();
 		return;
 	}
-	_handleInvoice(slug);
+	_delegate->botHandleInvoice(slug);
 }
 
 void Panel::openPopup(const QJsonObject &args) {
 	if (args.isEmpty()) {
-		_close();
+		_delegate->botClose();
 		return;
 	}
 	using Button = Webview::PopupArgs::Button;
@@ -805,7 +806,7 @@ void Panel::openPopup(const QJsonObject &args) {
 		const auto i = types.find(fields["type"].toString());
 		if (i == end(types)) {
 			LOG(("BotWebView Error: Bad 'type' in openPopup buttons."));
-			_close();
+			_delegate->botClose();
 			return;
 		}
 		buttons.push_back({
@@ -816,11 +817,11 @@ void Panel::openPopup(const QJsonObject &args) {
 	}
 	if (message.isEmpty()) {
 		LOG(("BotWebView Error: Bad 'message' in openPopup."));
-		_close();
+		_delegate->botClose();
 		return;
 	} else if (buttons.empty()) {
 		LOG(("BotWebView Error: Bad 'buttons' in openPopup."));
-		_close();
+		_delegate->botClose();
 		return;
 	}
 	const auto widget = _webview->window.widget();
@@ -838,8 +839,65 @@ void Panel::openPopup(const QJsonObject &args) {
 	}
 }
 
+void Panel::requestWriteAccess() {
+	if (_inBlockingRequest) {
+		replyRequestWriteAccess(false);
+		return;
+	}
+	_inBlockingRequest = true;
+	const auto finish = [=](bool allowed) {
+		_inBlockingRequest = false;
+		replyRequestWriteAccess(allowed);
+	};
+	const auto weak = base::make_weak(this);
+	_delegate->botCheckWriteAccess([=](bool allowed) {
+		if (!weak) {
+			return;
+		} else if (allowed) {
+			finish(true);
+			return;
+		}
+		using Button = Webview::PopupArgs::Button;
+		const auto widget = _webview->window.widget();
+		const auto integration = &Ui::Integration::Instance();
+		const auto result = Webview::ShowBlockingPopup({
+			.parent = widget ? widget->window() : nullptr,
+			.title = integration->phraseBotAllowWriteTitle(),
+			.text = integration->phraseBotAllowWrite(),
+			.buttons = {
+				{
+					.id = "allow",
+					.text = integration->phraseBotAllowWriteConfirm(),
+				},
+				{ .id = "cancel", .type = Button::Type::Cancel },
+			},
+		});
+		if (!weak) {
+			return;
+		} else if (result.id == "allow") {
+			_delegate->botAllowWriteAccess(crl::guard(this, finish));
+		} else {
+			finish(false);
+		}
+	});
+}
+
+void Panel::replyRequestWriteAccess(bool allowed) {
+	postEvent("write_access_requested", QJsonObject{
+		{ u"status"_q, allowed ? u"allowed"_q : u"cancelled"_q }
+	});
+}
+
 void Panel::requestPhone() {
-#if 0 // disabled for now
+	if (_inBlockingRequest) {
+		replyRequestPhone(false);
+		return;
+	}
+	_inBlockingRequest = true;
+	const auto finish = [=](bool shared) {
+		_inBlockingRequest = false;
+		replyRequestPhone(shared);
+	};
 	using Button = Webview::PopupArgs::Button;
 	const auto widget = _webview->window.widget();
 	const auto weak = base::make_weak(this);
@@ -853,15 +911,62 @@ void Panel::requestPhone() {
 				.id = "share",
 				.text = integration->phraseBotSharePhoneConfirm(),
 			},
-			{.id = "cancel", .type = Button::Type::Cancel },
+			{ .id = "cancel", .type = Button::Type::Cancel },
 		},
 	});
-	if (weak) {
-		postEvent("phone_requested", (result.id == "share")
-			? QJsonObject{ { u"phone_number"_q, _phone } }
-			: EventData());
+	if (!weak) {
+		return;
+	} else if (result.id == "share") {
+		_delegate->botSharePhone(crl::guard(this, finish));
+	} else {
+		finish(false);
 	}
-#endif
+}
+
+void Panel::replyRequestPhone(bool shared) {
+	postEvent("phone_requested", QJsonObject{
+		{ u"status"_q, shared ? u"sent"_q : u"cancelled"_q }
+	});
+}
+
+void Panel::invokeCustomMethod(const QJsonObject &args) {
+	const auto requestId = args["req_id"];
+	if (requestId.isUndefined()) {
+		return;
+	}
+	const auto finish = [=](QJsonObject response) {
+		replyCustomMethod(requestId, std::move(response));
+	};
+	auto callback = crl::guard(this, [=](CustomMethodResult result) {
+		if (result) {
+			auto error = QJsonParseError();
+			const auto parsed = QJsonDocument::fromJson(
+				"{ \"result\": " + *result + '}',
+				&error);
+			if (error.error != QJsonParseError::NoError
+				|| !parsed.isObject()
+				|| parsed.object().size() != 1) {
+				finish({ { u"error"_q, u"Could not parse response."_q } });
+			} else {
+				finish(parsed.object());
+			}
+		} else {
+			finish({ { u"error"_q, result.error() } });
+		}
+	});
+	const auto params = QJsonDocument(
+		args["params"].toObject()
+	).toJson(QJsonDocument::Compact);
+	_delegate->botInvokeCustomMethod({
+		.method = args["method"].toString(),
+		.params = params,
+		.callback = std::move(callback),
+	});
+}
+
+void Panel::replyCustomMethod(QJsonValue requestId, QJsonObject response) {
+	response["req_id"] = requestId;
+	postEvent(u"custom_method_invoked"_q, response);
 }
 
 void Panel::requestClipboardText(const QJsonObject &args) {
@@ -929,7 +1034,7 @@ void Panel::closeWithConfirmation() {
 	if (!weak) {
 		return;
 	} else if (result.id != "cancel") {
-		_close();
+		_delegate->botClose();
 	} else {
 		_closeWithConfirmationScheduled = false;
 	}
@@ -941,9 +1046,21 @@ void Panel::setupClosingBehaviour(const QJsonObject &args) {
 
 void Panel::processMainButtonMessage(const QJsonObject &args) {
 	if (args.isEmpty()) {
-		_close();
+		_delegate->botClose();
 		return;
 	}
+
+	const auto shown = [&] {
+		return _mainButton && !_mainButton->isHidden();
+	};
+	const auto wasShown = shown();
+	const auto guard = gsl::finally([&] {
+		if (shown() != wasShown) {
+			crl::on_main(this, [=] {
+				sendViewport();
+			});
+		}
+	});
 
 	if (!_mainButton) {
 		if (args["is_visible"].toBool()) {
@@ -985,6 +1102,22 @@ void Panel::processMainButtonMessage(const QJsonObject &args) {
 
 void Panel::processBackButtonMessage(const QJsonObject &args) {
 	_widget->setBackAllowed(args["is_visible"].toBool());
+}
+
+void Panel::processHeaderColor(const QJsonObject &args) {
+	if (const auto color = ParseColor(args["color"].toString())) {
+		_widget->overrideTitleColor(color);
+		_headerColorLifetime.destroy();
+	} else if (args["color_key"].toString() == u"secondary_bg_color"_q) {
+		_widget->overrideTitleColor(st::boxDividerBg->c);
+		_headerColorLifetime = style::PaletteChanged(
+		) | rpl::start_with_next([=] {
+			_widget->overrideTitleColor(st::boxDividerBg->c);
+		});
+	} else {
+		_widget->overrideTitleColor(std::nullopt);
+		_headerColorLifetime.destroy();
+	}
 }
 
 void Panel::createMainButton() {
@@ -1077,6 +1210,7 @@ void Panel::updateThemeParams(const Webview::ThemeParams &params) {
 		return;
 	}
 	_webview->window.updateTheme(
+		params.opaqueBg,
 		params.scrollBg,
 		params.scrollBgOver,
 		params.scrollBarBg,
@@ -1131,17 +1265,13 @@ void Panel::showWebviewError(
 	rich.append("\n\n");
 	switch (information.error) {
 	case Error::NoWebview2: {
-		const auto command = QString(QChar(TextCommand));
-		const auto text = tr::lng_payments_webview_install_edge(
+		rich.append(tr::lng_payments_webview_install_edge(
 			tr::now,
 			lt_link,
-			command);
-		const auto parts = text.split(command);
-		rich.append(parts.value(0))
-			.append(Text::Link(
+			Text::Link(
 				"Microsoft Edge WebView2 Runtime",
-				"https://go.microsoft.com/fwlink/p/?LinkId=2124703"))
-			.append(parts.value(1));
+				"https://go.microsoft.com/fwlink/p/?LinkId=2124703"),
+			Ui::Text::WithEntities));
 	} break;
 	case Error::NoWebKitGTK:
 		rich.append(tr::lng_payments_webview_install_webkit(tr::now));
@@ -1158,20 +1288,13 @@ rpl::lifetime &Panel::lifetime() {
 }
 
 std::unique_ptr<Panel> Show(Args &&args) {
-	const auto params = args.themeParams();
 	auto result = std::make_unique<Panel>(
 		args.userDataPath,
 		std::move(args.title),
-		std::move(args.handleLocalUri),
-		std::move(args.handleInvoice),
-		std::move(args.sendData),
-		std::move(args.switchInlineQuery),
-		std::move(args.close),
-		args.phone,
+		args.delegate,
 		args.menuButtons,
-		std::move(args.handleMenuButton),
-		std::move(args.themeParams),
 		args.allowClipboardRead);
+	const auto params = args.delegate->botThemeParams();
 	if (!result->showWebview(args.url, params, std::move(args.bottom))) {
 		const auto available = Webview::Availability();
 		if (available.error != Webview::Available::Error::None) {

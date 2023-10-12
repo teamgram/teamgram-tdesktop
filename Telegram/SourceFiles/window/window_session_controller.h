@@ -16,7 +16,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_chat_participant_status.h"
 #include "dialogs/dialogs_key.h"
 #include "ui/layers/layer_widget.h"
-#include "ui/layers/show.h"
 #include "settings/settings_type.h"
 #include "window/window_adaptive.h"
 #include "mtproto/sender.h"
@@ -89,7 +88,6 @@ namespace Window {
 using GifPauseReason = ChatHelpers::PauseReason;
 using GifPauseReasons = ChatHelpers::PauseReasons;
 
-class MainWindow;
 class SectionMemento;
 class Controller;
 class FiltersMenu;
@@ -102,6 +100,7 @@ enum class ResolveType {
 	AddToChannel,
 	ShareGame,
 	Mention,
+	Boost,
 };
 
 struct PeerThemeOverride {
@@ -214,9 +213,11 @@ public:
 		bool botAppForceConfirmation = false;
 		QString attachBotUsername;
 		std::optional<QString> attachBotToggleCommand;
+		bool attachBotMenuOpen = false;
 		InlineBots::PeerTypes attachBotChooseTypes;
 		std::optional<QString> voicechatHash;
 		FullMsgId clickFromMessageId;
+		QString clickFromAttachBotWebviewUrl;
 	};
 	void showPeerByLink(const PeerByLinkInfo &info);
 
@@ -311,6 +312,16 @@ private:
 		not_null<PeerData*> peer,
 		const PeerByLinkInfo &info);
 
+	void resolveBoostState(not_null<ChannelData*> channel);
+	void applyBoost(not_null<ChannelData*> channel, Fn<void(bool)> done);
+	void replaceBoostConfirm(
+		not_null<PeerData*> from,
+		not_null<ChannelData*> channel,
+		Fn<void(bool)> done);
+	void applyBoostChecked(
+		not_null<ChannelData*> channel,
+		Fn<void(bool)> done);
+
 	const not_null<Main::Session*> _session;
 
 	MTP::Sender _api;
@@ -320,6 +331,8 @@ private:
 	History *_showingRepliesHistory = nullptr;
 	MsgId _showingRepliesRootId = 0;
 	mtpRequestId _showingRepliesRequestId = 0;
+
+	ChannelData *_boostStateResolving = nullptr;
 
 };
 

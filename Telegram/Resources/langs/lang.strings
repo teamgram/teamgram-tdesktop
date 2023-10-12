@@ -189,6 +189,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_filter_chats_limit_title" = "Limit Reached";
 "lng_filter_chats_limit1#one" = "Sorry, you can't add more than **{count}** chat to a folder.";
 "lng_filter_chats_limit1#other" = "Sorry, you can't add more than **{count}** chats to a folder.";
+"lng_filter_chats_exlude_limit1#one" = "Sorry, you can't exlude more than **{count}** chat from a folder.";
+"lng_filter_chats_exlude_limit1#other" = "Sorry, you can't exlude more than **{count}** chats from a folder.";
 "lng_filter_chats_limit2#one" = "You can increase this limit to **{count}** by upgrading to **Teamgram Premium**.";
 "lng_filter_chats_limit2#other" = "You can increase this limit to **{count}** by upgrading to **Teamgram Premium**.";
 
@@ -242,8 +244,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_filter_shared_limit_title" = "Limit Reached";
 "lng_filter_shared_limit1#one" = "Sorry, you can't add more than **{count}** shareable folders.";
 "lng_filter_shared_limit1#other" = "Sorry, you can't add more than **{count}** shareable folders.";
-"lng_filter_shared_limit2#one" = "You can increase the limit up to **{count}** folder by subscribing to **Telegram Premium**.";
-"lng_filter_shared_limit2#other" = "You can increase the limit up to **{count}** folders by subscribing to **Telegram Premium**.";
+"lng_filter_shared_limit2#one" = "You can increase the limit up to **{count}** folder by subscribing to **Teamgram Premium**.";
+"lng_filter_shared_limit2#other" = "You can increase the limit up to **{count}** folders by subscribing to **Teamgram Premium**.";
 
 "lng_limits_increase" = "Increase Limit";
 
@@ -270,6 +272,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_error_noforwards_channel" = "Sorry, forwarding from this channel is disabled by admins.";
 "lng_error_nocopy_group" = "Sorry, copying from this group is disabled by admins.";
 "lng_error_nocopy_channel" = "Sorry, copying from this channel is disabled by admins.";
+"lng_error_nocopy_story" = "Sorry, copying of this story is disabled by the author.";
 "lng_sure_add_admin_invite" = "This user is not a member of this group. Add them to the group and promote them to admin?";
 "lng_sure_add_admin_invite_channel" = "This user is not a subscriber of this channel. Add them to the channel and promote them to admin?";
 "lng_sure_add_admin_unremove" = "This user is currently restricted or removed. Are you sure you want to promote them?";
@@ -448,6 +451,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_settings_show_from" = "Show notifications from";
 "lng_settings_notify_all" = "All accounts";
 "lng_settings_notify_all_about" = "Turn this off if you want to receive notifications only from the account you are currently using.";
+"lng_settings_notify_global" = "Global settings";
 "lng_settings_notify_title" = "Notifications for chats";
 "lng_settings_desktop_notify" = "Desktop notifications";
 "lng_settings_native_title" = "Native notifications";
@@ -455,8 +459,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_settings_use_native_notifications" = "Use native notifications";
 "lng_settings_notifications_position" = "Location on the screen";
 "lng_settings_notifications_count" = "Notifications count";
-"lng_settings_sound_notify" = "Play sound";
-"lng_settings_sound_notify_off" = "Off";
+"lng_settings_sound_allowed" = "Allow sound";
 "lng_settings_alert_windows" = "Flash the taskbar icon";
 "lng_settings_alert_mac" = "Bounce the dock icon";
 "lng_settings_alert_linux" = "Draw attention to the window";
@@ -477,6 +480,36 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_notification_hide_all" = "Hide all";
 "lng_notification_sample" = "This is a sample notification";
 "lng_notification_reminder" = "Reminder";
+"lng_notification_private_chats" = "Private chats";
+"lng_notification_groups" = "Groups";
+"lng_notification_channels" = "Channels";
+"lng_notification_click_to_change" = "Click here to change";
+"lng_notification_on" = "On, {exceptions}";
+"lng_notification_off" = "Off, {exceptions}";
+"lng_notification_exceptions#one" = "{count} exception";
+"lng_notification_exceptions#other" = "{count} exceptions";
+"lng_notification_exceptions_title" = "Exceptions";
+"lng_notification_title_private_chats" = "Notifications for private chats";
+"lng_notification_about_private_chats#one" = "Please note that **{count} chat** is listed as an exception and won't be affected by this change.";
+"lng_notification_about_private_chats#other" = "Please note that **{count} chats** are listed as exceptions and won't be affected by this change.";
+"lng_notification_title_groups" = "Notifications for groups";
+"lng_notification_about_groups#one" = "Please note that **{count} group** is listed as an exception and won't be affected by this change.";
+"lng_notification_about_groups#other" = "Please note that **{count} groups** are listed as exceptions and won't be affected by this change.";
+"lng_notification_title_channels" = "Notifications for channels";
+"lng_notification_about_channels#one" = "Please note that **{count} channel** is listed as an exception and won't be affected by this change.";
+"lng_notification_about_channels#other" = "Please note that **{count} channels** are listed as exceptions and won't be affected by this change.";
+"lng_notification_exceptions_view" = "View exceptions";
+"lng_notification_enable" = "Enable notifications";
+"lng_notification_sound" = "Sound";
+"lng_notification_tone" = "Notification tone";
+"lng_notification_exceptions_muted" = "Muted";
+"lng_notification_exceptions_unmuted" = "Unmuted";
+"lng_notification_exceptions_add" = "Add an exception";
+"lng_notification_exceptions_clear" = "Delete all exceptions";
+"lng_notification_exceptions_clear_sure" = "Are you sure you want to delete all exceptions?";
+"lng_notification_exceptions_clear_button" = "Delete";
+"lng_notification_exceptions_remove" = "Remove";
+"lng_notification_context_remove" = "Remove exception";
 
 "lng_reaction_text" = "{reaction} to your «{text}»";
 "lng_reaction_notext" = "{reaction} to your message";
@@ -515,6 +548,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_settings_title_account_name" = "Show active account";
 "lng_settings_title_total_count" = "Total unread count";
 "lng_settings_native_frame" = "Use system window frame";
+"lng_settings_qt_frame" = "Use Qt window frame";
 "lng_settings_auto_start" = "Launch Teamgram when system starts";
 "lng_settings_start_min" = "Launch minimized";
 "lng_settings_auto_start_disabled_uwp" = "Starting with the system was disabled in Windows Settings.\n\nPlease enable Teamgram Desktop in the Startup Apps Settings.";
@@ -597,6 +631,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_settings_username_label" = "Username";
 "lng_settings_phone_label" = "Phone number";
 "lng_settings_username_add" = "Add username";
+"lng_settings_username_about" = "Username lets people contact you on Teamgram without needing your phone number.";
+"lng_settings_add_account_about" = "You can add up to four accounts with different phone numbers.";
 "lng_settings_peer_to_peer_about" = "Disabling peer-to-peer will relay all calls through Teamgram servers to avoid revealing your IP address, but may slightly decrease audio quality.";
 "lng_settings_advanced" = "Advanced";
 "lng_settings_stickers_emoji" = "Stickers and emoji";
@@ -609,12 +645,20 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_settings_theme_accent_title" = "Choose accent color";
 "lng_settings_data_storage" = "Data and storage";
 "lng_settings_information" = "Edit profile";
+"lng_settings_my_account" = "My Account";
 "lng_settings_security" = "Security";
 "lng_settings_passcode_title" = "Local passcode";
 "lng_settings_sessions_title" = "Active sessions";
+"lng_settings_sessions_about" = "Review the list of devices where you are logged into your Teamgram account.";
+"lng_settings_archive_title" = "Archive Settings";
 "lng_settings_new_unknown" = "New chats from unknown users";
 "lng_settings_auto_archive" = "Archive and Mute";
 "lng_settings_auto_archive_about" = "Automatically archive and mute new chats, groups and channels from non-contacts.";
+"lng_settings_unmuted_chats" = "Unmuted chats";
+"lng_settings_always_in_archive" = "Always keep archived";
+"lng_settings_unmuted_chats_about" = "Keep archived chats in the Archive even if they are unmuted and get a new message.";
+"lng_settings_chats_from_folders" = "Chats from folders";
+"lng_settings_chats_from_folders_about" = "Keep archived chats from folders in the Archive even if they are unmuted and get a new message.";
 "lng_settings_destroy_title" = "Delete my account";
 "lng_settings_version_info" = "Version and updates";
 "lng_settings_system_integration" = "System integration";
@@ -633,6 +677,17 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_settings_sensitive_about" = "Display sensitive media in public channels on all your Teamgram devices.";
 "lng_settings_security_bots" = "Bots and websites";
 "lng_settings_clear_payment_info" = "Clear Payment and Shipping Info";
+"lng_settings_logged_in" = "Connected websites";
+"lng_settings_logged_in_title" = "Logged in with Teamgram";
+"lng_settings_logged_in_description" = "You can log in on websites that support signing in with Teamgram.";
+"lng_settings_disconnect_all" = "Disconnect all websites";
+"lng_settings_disconnect_title" = "Disconnect website";
+"lng_settings_disconnect_sure" = "Are you sure you want to disconnect {domain}?";
+"lng_settings_disconnect_block" = "Block {name}";
+"lng_settings_disconnect_all_title" = "Disconnect websites";
+"lng_settings_disconnect_all_sure" = "Are you sure you want to disconnect all websites where you logged in with Teamgram?";
+"lng_settings_disconnect" = "Disconnect";
+"lng_settings_connected_title" = "Connected websites";
 
 "lng_settings_power_menu" = "Battery and Animations";
 "lng_settings_power_title" = "Power Usage";
@@ -942,6 +997,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_sessions_terminate" = "Terminate Session";
 "lng_sessions_application" = "Application";
 "lng_sessions_system" = "System version";
+"lng_sessions_browser" = "Browser";
 "lng_sessions_ip" = "IP address";
 "lng_sessions_location" = "Location";
 "lng_sessions_location_about" = "This location is based only on the IP address and may not always be accurate.";
@@ -1072,7 +1128,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 "lng_change_phone_new_submit" = "Submit";
 "lng_change_phone_code_title" = "Enter code";
-"lng_change_phone_error" = "You can only change your phone number using mobile Telegram apps. Please use an official Telegram app on your phone to update your number.";
+"lng_change_phone_error" = "You can only change your phone number using mobile Teamgram apps. Please use an official Teamgram app on your phone to update your number.";
 
 "lng_mute_menu_mute" = "Mute";
 "lng_mute_menu_unmute" = "Unmute";
@@ -1127,6 +1183,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_profile_loading" = "Loading...";
 "lng_profile_saved_stories#one" = "{count} saved story";
 "lng_profile_saved_stories#other" = "{count} saved stories";
+"lng_profile_posts#one" = "{count} post";
+"lng_profile_posts#other" = "{count} posts";
 "lng_profile_photos#one" = "{count} photo";
 "lng_profile_photos#other" = "{count} photos";
 "lng_profile_gifs#one" = "{count} GIF";
@@ -1556,6 +1614,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_action_suggested_video" = "{user} suggests you to use this profile video.";
 "lng_action_suggested_video_button" = "View Video";
 "lng_action_attach_menu_bot_allowed" = "You allowed this bot to message you when you added it in the attachment menu.";
+"lng_action_webapp_bot_allowed" = "You allowed this bot to message you in his web-app.";
 "lng_action_set_wallpaper_me" = "You set a new wallpaper for this chat";
 "lng_action_set_wallpaper" = "{user} set a new wallpaper for this chat";
 "lng_action_set_wallpaper_button" = "View Wallpaper";
@@ -1744,6 +1803,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_bot_share_location_unavailable" = "Sorry, location sharing is currently unavailable in Teamgram Desktop.";
 "lng_bot_share_phone" = "Do you want to share your phone number with this bot?";
 "lng_bot_share_phone_confirm" = "Share";
+"lng_bot_allow_write_title" = "Allow messaging";
+"lng_bot_allow_write" = "Do you want to allow this bot writing you?";
+"lng_bot_allow_write_confirm" = "Allow";
 
 "lng_attach_failed" = "Failed";
 "lng_attach_file" = "File";
@@ -1787,6 +1849,13 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_emoji_set_active" = "Current set";
 "lng_emoji_set_download" = "Download {size}";
 "lng_emoji_set_loading" = "{percent}, {progress}";
+"lng_emoji_color_all" = "Choose color for all emoji";
+"lng_emoji_copy" = "Copy emoji";
+"lng_emoji_view_pack" = "View pack";
+"lng_emoji_remove_recent" = "Remove from recents";
+"lng_emoji_reset_recent" = "Reset recents";
+"lng_emoji_reset_recent_sure" = "Do you want to reset recent emoji?";
+"lng_emoji_reset_recent_button" = "Reset";
 
 "lng_recent_stickers" = "Frequently used";
 "lng_faved_stickers_add" = "Add to Favorites";
@@ -1825,6 +1894,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_premium_summary_subtitle_gift#other" = "{user} has gifted you a {count}-months subscription for Teamgram Premium.";
 "lng_premium_summary_subtitle_gift_me#one" = "You gifted {user} a {count}-month subscription for Teamgram Premium.";
 "lng_premium_summary_subtitle_gift_me#other" = "You gifted {user} a {count}-months subscription for Teamgram Premium.";
+"lng_premium_summary_subtitle_stories" = "Upgraded Stories";
+"lng_premium_summary_about_stories" = "Priority order, stealth mode, permanent views history and more.";
 "lng_premium_summary_subtitle_double_limits" = "Doubled Limits";
 "lng_premium_summary_about_double_limits" = "Up to 1000 channels, 20 folders, 10 pins, 20 public links, 4 accounts and more.";
 "lng_premium_summary_subtitle_more_upload" = "4Gb Upload Size";
@@ -1855,8 +1926,34 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_premium_summary_bottom_about" = "While the free version of Teamgram already gives its users more than any other messaging application, **Teamgram Premium** pushes its capabilities even further.\n\n**Teamgram Premium** is a paid option, because most Premium Features require additional expenses from Teamgram to third parties such as data center providers and server manufacturers. Contributions from **Teamgram Premium** users allow us to cover such costs and also help Teamgram stay free for everyone.";
 "lng_premium_summary_button" = "Subscribe for {cost} per month";
 
+"lng_premium_summary_new_badge" = "NEW";
+
 "lng_premium_success" = "You've successfully subscribed to Teamgram Premium!";
 "lng_premium_unavailable" = "This feature requires subscription to **Teamgram Premium**.\n\nUnfortunately, **Teamgram Premium** is not available in your region.";
+
+// Upgraded Stories.
+"lng_premium_stories_subtitle_order" = "Priority Order";
+"lng_premium_stories_about_order" = "Get more views as your stories are always displayed first.";
+
+"lng_premium_stories_subtitle_stealth" = "Stealth Mode";
+"lng_premium_stories_about_stealth" = "Hide the fact that you viewed other people's stories.";
+
+"lng_premium_stories_subtitle_views" = "Permanent Views History";
+"lng_premium_stories_about_views" = "Check who opens your stories – even after they expire.";
+
+"lng_premium_stories_subtitle_expiration" = "Expiration Durations*";
+"lng_premium_stories_about_expiration" = "Set custom expiration durations like 6 or 48 hours for your stories.";
+
+"lng_premium_stories_subtitle_download" = "Download Stories";
+"lng_premium_stories_about_download" = "Save other people's unprotected stories to your disk.";
+
+"lng_premium_stories_subtitle_caption" = "Longer Captions*";
+"lng_premium_stories_about_caption" = "Add ten times longer captions to your stories – up to 2048 symbols.";
+
+"lng_premium_stories_subtitle_links" = "Links and Formatting*";
+"lng_premium_stories_about_links" = "Add links and formatting in captions of your stories.";
+
+"lng_premium_stories_about_mobile" = "* Available when posting stories from Teamgram apps for iOS and Android.";
 
 // Doubled Limits.
 "lng_premium_double_limits_subtitle_channels" = "Groups and Channels";
@@ -1904,6 +2001,38 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_premium_gift_per" = "{cost} / month";
 "lng_premium_gift_terms" = "You can review the list of features and terms of use for Teamgram Premium {link}.";
 "lng_premium_gift_terms_link" = "here";
+
+"lng_boost_channel_button" = "Boost Channel";
+"lng_boost_level#one" = "Level {count}";
+"lng_boost_level#other" = "Level {count}";
+"lng_boost_channel_title_first" = "Enable stories for channel";
+"lng_boost_channel_needs_first#one" = "{channel} needs **{count}** more boost to enable posting stories. Help make it possible!";
+"lng_boost_channel_needs_first#other" = "{channel} needs **{count}** more boosts to enable posting stories. Help make it possible!";
+"lng_boost_channel_title_more" = "Help upgrade channel";
+"lng_boost_channel_needs_more#one" = "{channel} needs **{count}** more boost to be able to {post}.";
+"lng_boost_channel_needs_more#other" = "{channel} needs **{count}** more boosts to be able to {post}.";
+"lng_boost_channel_title_max" = "Maximum level reached";
+"lng_boost_channel_you_title" = "You boosted {channel}!";
+"lng_boost_channel_you_first#one" = "This channel needs **{count}** more boost\nto enable stories.";
+"lng_boost_channel_you_first#other" = "This channel needs **{count}** more boosts\nto enable stories.";
+"lng_boost_channel_you_more#one" = "This channel needs **{count}** more boost\nto be able to {post}.";
+"lng_boost_channel_you_more#other" = "This channel needs **{count}** more boosts\nto be able to {post}.";
+"lng_boost_channel_reached_first" = "This channel reached **Level 1** and can now post stories.";
+"lng_boost_channel_reached_more#one" = "This channel reached **Level {count}** and can now {post}.";
+"lng_boost_channel_reached_more#other" = "This channel reached **Level {count}** and can now {post}.";
+"lng_boost_channel_post_stories#one" = "post **{count} story** per day";
+"lng_boost_channel_post_stories#other" = "post **{count} stories** per day";
+"lng_boost_error_gifted_title" = "Can't boost with gifted Premium!";
+"lng_boost_error_gifted_text" = "Because your **Teamgram Premium** subscription was gifted to you, you can't use it to boost channels.";
+"lng_boost_error_already_title" = "Already Boosted!";
+"lng_boost_error_already_text" = "You are already boosting this channel.";
+"lng_boost_error_premium_title" = "Premium needed!";
+"lng_boost_error_premium_text" = "Only **Teamgram Premium** subscribers can boost channels. Do you want to subscribe to **Teamgram Premium**?";
+"lng_boost_error_premium_yes" = "Yes";
+"lng_boost_error_flood_title" = "Can't boost too often!";
+"lng_boost_error_flood_text" = "You can change the channel you boost only once a day. Next time you can boost is in {left}.";
+"lng_boost_now_instead" = "You currently boost {channel}. Do you want to boost {other} instead?";
+"lng_boost_now_replace" = "Replace";
 
 "lng_accounts_limit_title" = "Limit Reached";
 "lng_accounts_limit1#one" = "You have reached the limit of **{count}** connected accounts.";
@@ -2166,17 +2295,24 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_bot_remove_from_menu" = "Remove From Menu";
 "lng_bot_remove_from_menu_sure" = "Remove {bot} from the attachment menu?";
 "lng_bot_remove_from_menu_done" = "Bot removed from the menu.";
+"lng_bot_remove_from_side_menu" = "Remove From Menu";
+"lng_bot_remove_from_side_menu_sure" = "Remove {bot} from the main menu?";
+"lng_bot_remove_from_side_menu_done" = "Bot removed from the main menu.";
 "lng_bot_settings" = "Settings";
 "lng_bot_open" = "Open Bot";
 "lng_bot_reload_page" = "Reload Page";
 "lng_bot_add_to_menu" = "{bot} asks your permission to be added as an option to your attachments menu so you can access it from any chat.";
 "lng_bot_add_to_menu_done" = "Bot added to the menu.";
+"lng_bot_will_be_added" = "{bot} shortcuts will be added to the attachment options and the main menu.";
+"lng_bot_side_menu_new" = "NEW";
 "lng_bot_menu_not_supported" = "This bot isn't supported in the attach menu.";
 "lng_bot_menu_already_added" = "This bot is already added in your attach menu.";
 "lng_bot_menu_button" = "Menu";
 "lng_bot_close_warning_title" = "Warning";
 "lng_bot_close_warning" = "Changes that you made may not be saved.";
 "lng_bot_close_warning_sure" = "Close anyway";
+"lng_bot_add_to_side_menu" = "{bot} asks your permission to be added as an option to your main menu so you can access it any time.";
+"lng_bot_add_to_side_menu_done" = "Bot added to the main menu.";
 
 "lng_typing" = "typing";
 "lng_user_typing" = "{user} is typing";
@@ -2247,6 +2383,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_context_archive_to_menu" = "Move to main menu";
 "lng_context_archive_to_list" = "Move to chats list";
 "lng_context_archive_to_menu_info" = "Archive moved to the main menu!\nYou can return it from the context menu of the archive button.";
+"lng_context_archive_settings" = "Archive settings";
 
 "lng_context_mute" = "Mute";
 "lng_context_unmute" = "Unmute";
@@ -2279,6 +2416,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_context_open_gif" = "Open GIF";
 "lng_context_save_gif" = "Save GIF";
 "lng_context_delete_gif" = "Delete GIF";
+"lng_context_open_channel" = "Open Channel";
 "lng_context_attached_stickers" = "Attached Stickers";
 "lng_context_to_msg" = "Go To Message";
 "lng_context_reply_msg" = "Reply";
@@ -2656,6 +2794,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 "lng_payments_terms_title" = "Terms of Service";
 "lng_payments_terms_text" = "Subscribe and accept terms of service of {bot}?";
+"lng_payments_terms_text_once" = "Are you accepting terms of service of {bot}?";
 "lng_payments_terms_agree" = "I agree to {link}";
 "lng_payments_terms_link" = "Terms of Service";
 "lng_payments_terms_accept" = "Accept";
@@ -2996,9 +3135,14 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_gigagroup_suggest_more" = "Learn more";
 
 "lng_rights_channel_info" = "Change channel info";
+"lng_rights_channel_manage" = "Manage messages";
 "lng_rights_channel_post" = "Post messages";
 "lng_rights_channel_edit" = "Edit messages of others";
 "lng_rights_channel_delete" = "Delete messages of others";
+"lng_rights_channel_manage_stories" = "Manage stories";
+"lng_rights_channel_post_stories" = "Post stories";
+"lng_rights_channel_edit_stories" = "Edit stories of others";
+"lng_rights_channel_delete_stories" = "Delete stories of others";
 "lng_rights_channel_manage_calls" = "Manage live streams";
 "lng_rights_group_info" = "Change group info";
 "lng_rights_group_ban" = "Ban users";
@@ -3257,6 +3401,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_admin_log_admin_post_messages" = "Post messages";
 "lng_admin_log_admin_edit_messages" = "Edit messages";
 "lng_admin_log_admin_delete_messages" = "Delete messages";
+"lng_admin_log_admin_post_stories" = "Post stories";
+"lng_admin_log_admin_edit_stories" = "Edit stories";
+"lng_admin_log_admin_delete_stories" = "Delete stories";
 "lng_admin_log_admin_remain_anonymous" = "Remain anonymous";
 "lng_admin_log_admin_ban_users" = "Ban users";
 "lng_admin_log_admin_invite_users" = "Add members";
@@ -3472,6 +3619,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_export_option_choose_format" = "Choose export format";
 "lng_export_option_html" = "Human-readable HTML";
 "lng_export_option_json" = "Machine-readable JSON";
+"lng_export_option_html_and_json" = "Both";
 "lng_export_limits" = "From: {from}, to: {till}";
 "lng_export_beginning" = "the oldest message";
 "lng_export_end" = "present";
@@ -3665,7 +3813,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_filters_link_chats_no_about" = "You can only share groups and channels in which you are allowed to create invite links.";
 "lng_filters_link_name_it" = "Name Link";
 "lng_filters_link_delete_sure" = "Are you sure you want to delete this link?";
-"lng_filters_link_qr_about" = "Everyone on Telegram can scan this code to add this folder and join the chats included in this invite link.";
+"lng_filters_link_qr_about" = "Everyone on Teamgram can scan this code to add this folder and join the chats included in this invite link.";
 "lng_filters_link_group_admin_error" = "One of the groups in this folder can’t be added because one of its admins has too many groups and channels.";
 "lng_filters_by_link_title" = "Add Folder";
 "lng_filters_by_link_sure" = "Do you want to add a new chat folder {folder} and join its groups and channels?";
@@ -3736,6 +3884,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_view_button_voice_chat_channel" = "Live stream";
 "lng_view_button_request_join" = "Request to Join";
 "lng_view_button_external_link" = "Open link";
+"lng_view_button_boost" = "Boost";
 
 "lng_sponsored_hide_ads" = "Hide";
 "lng_sponsored_title" = "What are sponsored messages?";
@@ -3745,6 +3894,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_sponsored_info_submenu" = "Advertiser: {text}";
 
 "lng_telegram_features_url" = "https://teamgram.me/TeamgramTips";
+
+"lng_mini_apps_disclaimer_title" = "Warning";
+"lng_mini_apps_disclaimer_text" = "You are about to use a mini app operated by an independent party **not affiliated with Teamgram**. You must agree to the Terms of Use of mini apps to continue.";
+"lng_mini_apps_disclaimer_button" = "I agree to the {link}";
+"lng_mini_apps_disclaimer_link" = "Terms of Use";
+"lng_mini_apps_tos_url" = "https://teamgram.net/tos/mini-apps";
 
 "lng_ringtones_box_title" = "Notification Sound";
 "lng_ringtones_box_cloud_subtitle" = "Choose your tone";
@@ -3843,7 +3998,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_stories_views#one" = "{count} view";
 "lng_stories_views#other" = "{count} views";
 "lng_stories_no_views" = "No views";
-"lng_stories_unsupported" = "This story is not supported\nby your version of Telegram.";
+"lng_stories_unsupported" = "This story is not supported\nby your version of Teamgram.";
 "lng_stories_cant_reply" = "You can't reply to this story.";
 "lng_stories_about_silent" = "This video has no sound.";
 "lng_stories_about_close_friends" = "You're seeing this story because {user} added you to their list of **Close Friends**.";
@@ -3863,6 +4018,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_stories_recent_button" = "Recent Stories";
 "lng_stories_archive_title" = "Stories Archive";
 "lng_stories_archive_about" = "Only you can see archived stories unless you choose to save them to your profile.";
+"lng_stories_channel_archive_about" = "Only admins of the channel can see archived stories unless they are saved to the channel page.";
 "lng_stories_reply_sent" = "Message Sent";
 "lng_stories_hidden_to_contacts" = "Stories from {user} will now be shown in **Archived Chats**.";
 "lng_stories_shown_in_chats" = "Stories from {user} will now be shown in the **Chats List**.";
@@ -3882,6 +4038,38 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_stories_archive_done" = "This story is hidden from your profile.";
 "lng_stories_archive_done_many#one" = "{count} story is hidden from your profile.";
 "lng_stories_archive_done_many#other" = "{count} stories are hidden from your profile.";
+"lng_stories_channel_save_sure" = "Do you want to save this story to the channel page?";
+"lng_stories_channel_save_sure_many#one" = "Do you want to save {count} story to the channel page?";
+"lng_stories_channel_save_sure_many#other" = "Do you want to save {count} stories to the channel page?";
+"lng_stories_channel_save_done" = "This story is saved to the channel page.";
+"lng_stories_channel_save_done_many#one" = "{count} story is saved to the channel page.";
+"lng_stories_channel_save_done_many#other" = "{count} stories are saved to the channel page.";
+"lng_stories_channel_save_done_about" = "Saved stories can be viewed by others on the channel page until they are removed.";
+"lng_stories_channel_archive_sure" = "Do you want to hide this story from the channel page?";
+"lng_stories_channel_archive_sure_many#one" = "Do you want to hide {count} story from the channel page?";
+"lng_stories_channel_archive_sure_many#other" = "Do you want to hide {count} stories from the channel page?";
+"lng_stories_channel_archive_done" = "This story is hidden from the channel page.";
+"lng_stories_channel_archive_done_many#one" = "{count} story is hidden from the channel page.";
+"lng_stories_channel_archive_done_many#other" = "{count} stories are hidden from the channel page.";
+"lng_stories_save_promo" = "Subscribe to {link} to download other people's unprotected stories to disk.";
+
+"lng_stealth_mode_menu_item" = "Stealth Mode";
+"lng_stealth_mode_title" = "Stealth Mode";
+"lng_stealth_mode_unlock_about" = "Subscribe to Teamgram Premium to hide the fact that you viewed peoples' stories from them.";
+"lng_stealth_mode_about" = "Turn Stealth Mode on to hide the fact that you viewed peoples' stories from them.";
+"lng_stealth_mode_past_title" = "Hide Recent Views";
+"lng_stealth_mode_past_about" = "Hide my views in the last 5 minutes.";
+"lng_stealth_mode_next_title" = "Hide Next Views";
+"lng_stealth_mode_next_about" = "Hide my views in the next 25 minutes.";
+"lng_stealth_mode_unlock" = "Unlock Stealth Mode";
+"lng_stealth_mode_enable" = "Enable Stealth Mode";
+"lng_stealth_mode_cooldown_in" = "Available in {left}";
+"lng_stealth_mode_cooldown_tip" = "Please wait until the **Stealth Mode** is ready to use again.";
+"lng_stealth_mode_enabled_tip_title" = "Stealth Mode On";
+"lng_stealth_mode_enabled_tip" = "The creators of stories you viewed in the last **5 minutes** or will view in the next **25 minutes** won't see you in the viewers' lists.";
+"lng_stealth_mode_countdown" = "Stealth Mode active – {left}";
+"lng_stealth_mode_already_title" = "You are in Stealth Mode";
+"lng_stealth_mode_already_about" = "The creators of stories you will view in the next **{left}** won't see you in the viewers' lists.";
 
 "lng_stories_link_invalid" = "This link is broken or has expired.";
 

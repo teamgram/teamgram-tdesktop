@@ -48,20 +48,20 @@ struct IconDescriptor;
 
 namespace Settings {
 
-extern const char kOptionMonoSettingsIcons[];
-
 using Button = Ui::SettingsButton;
 
 class AbstractSection;
 
-struct SectionMeta {
+struct AbstractSectionFactory {
 	[[nodiscard]] virtual object_ptr<AbstractSection> create(
 		not_null<QWidget*> parent,
 		not_null<Window::SessionController*> controller) const = 0;
+
+	virtual ~AbstractSectionFactory() = default;
 };
 
 template <typename SectionType>
-struct SectionMetaImplementation : SectionMeta {
+struct SectionFactory : AbstractSectionFactory {
 	object_ptr<AbstractSection> create(
 		not_null<QWidget*> parent,
 		not_null<Window::SessionController*> controller
@@ -69,9 +69,9 @@ struct SectionMetaImplementation : SectionMeta {
 		return object_ptr<SectionType>(parent, controller);
 	}
 
-	[[nodiscard]] static not_null<SectionMeta*> Meta() {
-		static SectionMetaImplementation result;
-		return &result;
+	[[nodiscard]] static const std::shared_ptr<SectionFactory> &Instance() {
+		static const auto result = std::make_shared<SectionFactory>();
+		return result;
 	}
 };
 
@@ -122,21 +122,12 @@ public:
 	using AbstractSection::AbstractSection;
 
 	[[nodiscard]] static Type Id() {
-		return &SectionMetaImplementation<SectionType>::Meta;
+		return SectionFactory<SectionType>::Instance();
 	}
 	[[nodiscard]] Type id() const final override {
 		return Id();
 	}
 };
-
-inline constexpr auto kIconRed = 1;
-inline constexpr auto kIconGreen = 2;
-inline constexpr auto kIconLightOrange = 3;
-inline constexpr auto kIconLightBlue = 4;
-inline constexpr auto kIconDarkBlue = 5;
-inline constexpr auto kIconPurple = 6;
-inline constexpr auto kIconDarkOrange = 8;
-inline constexpr auto kIconGray = 9;
 
 enum class IconType {
 	Rounded,
@@ -146,10 +137,9 @@ enum class IconType {
 
 struct IconDescriptor {
 	const style::icon *icon = nullptr;
-	int color = 0; // settingsIconBg{color}, 9 for settingsIconBgArchive.
 	IconType type = IconType::Rounded;
 	const style::color *background = nullptr;
-	std::optional<QBrush> backgroundBrush; // Can be useful for gragdients.
+	std::optional<QBrush> backgroundBrush; // Can be useful for gradients.
 
 	explicit operator bool() const {
 		return (icon != nullptr);

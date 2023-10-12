@@ -33,10 +33,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "boxes/about_box.h"
 #include "lang/lang_keys.h"
 #include "base/platform/mac/base_utilities_mac.h"
-#include "ui/widgets/input_fields.h"
+#include "ui/widgets/fields/input_field.h"
 #include "ui/ui_utility.h"
 
 #include <QtWidgets/QApplication>
+#include <QtWidgets/QLineEdit>
+#include <QtWidgets/QTextEdit>
 #include <QtGui/QClipboard>
 #include <qpa/qwindowsysteminterface.h>
 
@@ -238,7 +240,6 @@ MainWindow::MainWindow(not_null<Window::Controller*> controller)
 : Window::MainWindow(controller)
 , _private(std::make_unique<Private>(this))
 , psMainMenu(this) {
-	auto forceOpenGL = std::make_unique<QOpenGLWidget>(this);
 	_hideAfterFullScreenTimer.setCallback([this] { hideAndDeactivate(); });
 }
 

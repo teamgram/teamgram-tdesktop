@@ -1,3 +1,89 @@
+4.10.3 (02.10.23)
+
+- Fix crash on external link opening. (Linux only)
+
+4.10.2 (28.09.23)
+
+- Bug fixes and other minor improvements.
+
+4.10.1 (23.09.23)
+
+- Rebuild macOS version with Xcode 14.0.1.
+
+4.10 (22.09.23)
+
+- Stories for Channels.
+- Reaction Stickers in Stories.
+
+4.9.10 beta (22.09.23)
+
+- Update Qt to 6.2.5 on macOS.
+- Update minimum target to macOS 10.13 and toolchain to Xcode 15.
+- Update Linux build host from CentOS 7 to Rocky Linux 8.
+- Update Linux toolchain to GCC 12.
+
+4.9.9 (18.09.23)
+
+- Add support for Emoji 15.
+- Several crash fixes.
+
+4.9.8 (16.09.23)
+
+- Fix t.me/botname?startapp=token deeplinks.
+- Fix a possible crash in media viewer on Wayland.
+
+4.9.7 (13.09.23)
+
+- Fix direct bot web app links handling.
+- Close main menu when opening a web app.
+- Bump libwebp revision.
+
+4.9.6 (12.09.23)
+
+- Some bot web-app improvements.
+- Bug fixes and other minor improvements.
+
+4.9.5 (04.09.23)
+
+- Several new bot web-app features.
+- Bug fixes and other minor improvements.
+
+4.9.4 (30.08.23)
+
+- Default private chats / groups / channels notification settings.
+- Forwarded / reply-to-a-story icon in chats list message preview.
+- Bug fixes and other minor improvements.
+
+4.9.3 (22.08.23)
+
+- Fix audio output on macOS.
+
+4.9.2 (21.08.23)
+
+- Remove single recently used emoji or reset the list from context menu.
+- Change all emoji skin colors from Emoji & People section.
+- Connected Websites section in Settings > Advanced.
+- Bug fixes and other minor improvements.
+
+4.9.1 (15.08.23)
+
+- Fix a crash in reply area ripple animation.
+- Fix a crash on start in some Linux distributions.
+
+4.9 (14.08.23)
+
+- Gradual stories rollout.
+
+4.8.12 beta (11.08.23)
+
+- Fix crash by a full rebuild on macOS.
+
+4.8.11 beta (10.08.23)
+
+- Fix initial video playback speed.
+- Use native window resize on Windows 11.
+- Fix memory leak in Direct3D 11 media viewer on Windows.
+
 4.8.10 (28.07.23)
 
 - Send story sharing comments as separate messages.
@@ -30,7 +116,7 @@
 4.8.3 (31.05.23)
 
 - Fix main window focus from notifications with disabled animations.
-- Some minor fixes and improvements. 
+- Some minor fixes and improvements.
 
 4.8.2 (16.05.23)
 

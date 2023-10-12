@@ -80,6 +80,7 @@ class Ringtones;
 class Transcribes;
 class Premium;
 class Usernames;
+class Websites;
 
 namespace details {
 
@@ -293,8 +294,12 @@ public:
 		const QString &phone,
 		const QString &firstName,
 		const QString &lastName,
-		const SendAction &action);
-	void shareContact(not_null<UserData*> user, const SendAction &action);
+		const SendAction &action,
+		Fn<void(bool)> done = nullptr);
+	void shareContact(
+		not_null<UserData*> user,
+		const SendAction &action,
+		Fn<void(bool)> done = nullptr);
 	void applyAffectedMessages(
 		not_null<PeerData*> peer,
 		const MTPmessages_AffectedMessages &result);
@@ -302,7 +307,7 @@ public:
 	void sendVoiceMessage(
 		QByteArray result,
 		VoiceWaveform waveform,
-		int duration,
+		crl::time duration,
 		const SendAction &action);
 	void sendFiles(
 		Ui::PreparedList &&list,
@@ -383,6 +388,7 @@ public:
 	[[nodiscard]] Api::Transcribes &transcribes();
 	[[nodiscard]] Api::Premium &premium();
 	[[nodiscard]] Api::Usernames &usernames();
+	[[nodiscard]] Api::Websites &websites();
 
 	void updatePrivacyLastSeens();
 
@@ -487,7 +493,8 @@ private:
 		const QString &firstName,
 		const QString &lastName,
 		UserId userId,
-		const SendAction &action);
+		const SendAction &action,
+		Fn<void(bool)> done);
 
 	void deleteHistory(
 		not_null<PeerData*> peer,
@@ -514,12 +521,14 @@ private:
 	void sendMedia(
 		not_null<HistoryItem*> item,
 		const MTPInputMedia &media,
-		Api::SendOptions options);
+		Api::SendOptions options,
+		Fn<void(bool)> done = nullptr);
 	void sendMediaWithRandomId(
 		not_null<HistoryItem*> item,
 		const MTPInputMedia &media,
 		Api::SendOptions options,
-		uint64 randomId);
+		uint64 randomId,
+		Fn<void(bool)> done = nullptr);
 	FileLoadTo fileLoadTaskOptions(const SendAction &action) const;
 
 	void getTopPromotionDelayed(TimeId now, TimeId next);
@@ -693,6 +702,7 @@ private:
 	const std::unique_ptr<Api::Transcribes> _transcribes;
 	const std::unique_ptr<Api::Premium> _premium;
 	const std::unique_ptr<Api::Usernames> _usernames;
+	const std::unique_ptr<Api::Websites> _websites;
 
 	mtpRequestId _wallPaperRequestId = 0;
 	QString _wallPaperSlug;

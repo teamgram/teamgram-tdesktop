@@ -78,7 +78,10 @@ public:
 	void askSetPassword();
 	void showCloseConfirm();
 	void showWarning(const QString &bot, const QString &provider);
-	void requestTermsAcceptance(const QString &username, const QString &url);
+	void requestTermsAcceptance(
+		const QString &username,
+		const QString &url,
+		bool recurring);
 
 	bool showWebview(
 		const QString &url,
@@ -100,7 +103,7 @@ private:
 	struct Progress;
 	struct WebviewWithLifetime;
 
-	bool createWebview();
+	bool createWebview(const Webview::ThemeParams &params);
 	void showWebviewProgress();
 	void hideWebviewProgress();
 	void showWebviewError(
@@ -123,6 +126,7 @@ private:
 	QPointer<EditInformation> _weakEditInformation;
 	QPointer<EditCard> _weakEditCard;
 	rpl::event_stream<QString> _savedMethodChosen;
+	bool _themeUpdateScheduled = false;
 	bool _webviewProgress = false;
 	bool _testMode = false;
 

@@ -1208,24 +1208,37 @@ void ListWidget::toggleStoryPin(
 			list.push_back({ id.peer, StoryIdFromMsgId(id.msg) });
 		}
 	}
+	if (list.empty()) {
+		return;
+	}
+	const auto channel = peerIsChannel(list.front().peer);
 	const auto count = int(list.size());
 	const auto pin = (_controller->storiesTab() == Stories::Tab::Archive);
 	const auto controller = _controller;
 	const auto sure = [=](Fn<void()> close) {
+		using namespace ::Media::Stories;
 		controller->session().data().stories().togglePinnedList(list, pin);
 		controller->showToast(
-			::Media::Stories::PrepareTogglePinnedToast(count, pin));
+			PrepareTogglePinnedToast(channel, count, pin));
 		close();
 		if (confirmed) {
 			confirmed();
 		}
 	};
 	const auto onePhrase = pin
-		? tr::lng_stories_save_sure
-		: tr::lng_stories_archive_sure;
+		? (channel
+			? tr::lng_stories_channel_save_sure
+			: tr::lng_stories_save_sure)
+		: (channel
+			? tr::lng_stories_channel_archive_sure
+			: tr::lng_stories_archive_sure);
 	const auto manyPhrase = pin
-		? tr::lng_stories_save_sure_many
-		: tr::lng_stories_archive_sure_many;
+		? (channel
+			? tr::lng_stories_channel_save_sure_many
+			: tr::lng_stories_save_sure_many)
+		: (channel
+			? tr::lng_stories_channel_archive_sure_many
+			: tr::lng_stories_archive_sure_many);
 	_controller->parentController()->show(Ui::MakeConfirmBox({
 		.text = (count == 1
 			? onePhrase()
@@ -1815,7 +1828,7 @@ void ListWidget::performDrag() {
 	//	auto pressedMedia = static_cast<HistoryView::Media*>(nullptr);
 	//	if (auto pressedItem = _pressState.layout) {
 	//		pressedMedia = pressedItem->getMedia();
-	//		if (_mouseCursorState == CursorState::Date || (pressedMedia && pressedMedia->dragItem())) {
+	//		if (_mouseCursorState == CursorState::Date) {
 	//			session().data().setMimeForwardIds(session().data().itemOrItsGroup(pressedItem));
 	//			forwardMimeType = u"application/x-td-forward"_q;
 	//		}

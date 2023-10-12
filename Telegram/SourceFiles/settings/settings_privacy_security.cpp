@@ -13,6 +13,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "api/api_self_destruct.h"
 #include "api/api_sensitive_content.h"
 #include "api/api_global_privacy.h"
+#include "api/api_websites.h"
 #include "settings/cloud_password/settings_cloud_password_email_confirm.h"
 #include "settings/cloud_password/settings_cloud_password_input.h"
 #include "settings/cloud_password/settings_cloud_password_start.h"
@@ -22,6 +23,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "settings/settings_local_passcode.h"
 #include "settings/settings_premium.h" // Settings::ShowPremium.
 #include "settings/settings_privacy_controllers.h"
+#include "settings/settings_websites.h"
 #include "base/timer_rpl.h"
 #include "boxes/edit_privacy_box.h"
 #include "boxes/passcode_box.h"
@@ -58,6 +60,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_session_controller.h"
 #include "apiwrap.h"
 #include "styles/style_settings.h"
+#include "styles/style_menu_icons.h"
 #include "styles/style_layers.h"
 #include "styles/style_boxes.h"
 
@@ -311,53 +314,6 @@ void SetupPrivacy(
 	AddDivider(container);
 }
 
-void SetupArchiveAndMute(
-		not_null<Window::SessionController*> controller,
-		not_null<Ui::VerticalLayout*> container) {
-	using namespace rpl::mappers;
-
-	const auto wrap = container->add(
-		object_ptr<Ui::SlideWrap<Ui::VerticalLayout>>(
-			container,
-			object_ptr<Ui::VerticalLayout>(container)));
-	const auto inner = wrap->entity();
-
-	AddSkip(inner);
-	AddSubsectionTitle(inner, tr::lng_settings_new_unknown());
-
-	const auto session = &controller->session();
-
-	const auto privacy = &session->api().globalPrivacy();
-	privacy->reload();
-	AddButton(
-		inner,
-		tr::lng_settings_auto_archive(),
-		st::settingsButtonNoIcon
-	)->toggleOn(
-		privacy->archiveAndMute()
-	)->toggledChanges(
-	) | rpl::filter([=](bool toggled) {
-		return toggled != privacy->archiveAndMuteCurrent();
-	}) | rpl::start_with_next([=](bool toggled) {
-		privacy->update(toggled);
-	}, container->lifetime());
-
-	AddSkip(inner);
-	AddDividerText(inner, tr::lng_settings_auto_archive_about());
-
-	auto shown = rpl::single(
-		false
-	) | rpl::then(session->api().globalPrivacy().showArchiveAndMute(
-	) | rpl::filter(_1) | rpl::take(1));
-	auto premium = Data::AmPremiumValue(&controller->session());
-
-	using namespace rpl::mappers;
-	wrap->toggleOn(rpl::combine(
-		std::move(shown),
-		std::move(premium),
-		_1 || _2));
-}
-
 void SetupLocalPasscode(
 		not_null<Window::SessionController*> controller,
 		not_null<Ui::VerticalLayout*> container,
@@ -379,7 +335,7 @@ void SetupLocalPasscode(
 		tr::lng_settings_passcode_title(),
 		std::move(label),
 		st::settingsButton,
-		{ &st::settingsIconLock, kIconGreen }
+		{ &st::menuIconLock }
 	)->addClickHandler([=] {
 		if (controller->session().domain().local().hasLocalPasscode()) {
 			showOther(LocalPasscodeCheckId());
@@ -429,7 +385,7 @@ void SetupCloudPassword(
 		tr::lng_settings_cloud_password_start_title(),
 		std::move(label),
 		st::settingsButton,
-		{ &st::settingsIconKey, kIconLightBlue }
+		{ &st::menuIconPermissions }
 	)->addClickHandler([=, passwordState = base::duplicate(passwordState)] {
 		const auto state = rpl::variable<PasswordState>(
 			base::duplicate(passwordState)).current();
@@ -627,7 +583,7 @@ void SetupBlockedList(
 		tr::lng_settings_blocked_users(),
 		std::move(blockedCount),
 		st::settingsButton,
-		{ &st::settingsIconMinus, kIconRed });
+		{ &st::menuIconBlock });
 	blockedPeers->addClickHandler([=] {
 		showOther(Blocked::Id());
 	});
@@ -636,6 +592,44 @@ void SetupBlockedList(
 	) | rpl::start_with_next([=] {
 		session->api().blockedPeers().reload();
 	}, blockedPeers->lifetime());
+}
+
+void SetupWebsitesList(
+		not_null<Window::SessionController*> controller,
+		not_null<Ui::VerticalLayout*> container,
+		rpl::producer<> updateTrigger,
+		Fn<void(Type)> showOther) {
+	std::move(
+		updateTrigger
+	) | rpl::start_with_next([=] {
+		controller->session().api().websites().reload();
+	}, container->lifetime());
+
+	auto count = controller->session().api().websites().totalValue();
+	auto countText = rpl::duplicate(
+		count
+	) | rpl::filter(rpl::mappers::_1 > 0) | rpl::map([](int count) {
+		return QString::number(count);
+	});
+
+	const auto wrap = container->add(
+		object_ptr<Ui::SlideWrap<Ui::VerticalLayout>>(
+			container,
+			object_ptr<Ui::VerticalLayout>(container)));
+	const auto inner = wrap->entity();
+
+	AddButtonWithLabel(
+		inner,
+		tr::lng_settings_logged_in(),
+		std::move(countText),
+		st::settingsButton,
+		{ &st::menuIconIpAddress }
+	)->addClickHandler([=] {
+		showOther(Websites::Id());
+	});
+
+	wrap->toggleOn(std::move(count) | rpl::map(rpl::mappers::_1 > 0));
+	wrap->finishAnimating();
 }
 
 void SetupSessionsList(
@@ -649,7 +643,7 @@ void SetupSessionsList(
 		controller->session().api().authorizations().reload();
 	}, container->lifetime());
 
-	auto count = controller->session().api().authorizations().totalChanges(
+	auto count = controller->session().api().authorizations().totalValue(
 	) | rpl::map([](int count) {
 		return count ? QString::number(count) : QString();
 	});
@@ -659,10 +653,13 @@ void SetupSessionsList(
 		tr::lng_settings_show_sessions(),
 		std::move(count),
 		st::settingsButton,
-		{ &st::settingsIconLaptop, kIconLightOrange }
+		{ &st::menuIconDevices }
 	)->addClickHandler([=] {
 		showOther(Sessions::Id());
 	});
+
+	AddSkip(container);
+	AddDividerText(container, tr::lng_settings_sessions_about());
 }
 
 void SetupGlobalTTLList(
@@ -682,7 +679,7 @@ void SetupGlobalTTLList(
 		tr::lng_settings_ttl_title(),
 		std::move(ttlLabel),
 		st::settingsButton,
-		{ &st::settingsIconTTL, kIconPurple });
+		{ &st::menuIconTTL });
 	globalTTLButton->addClickHandler([=] {
 		showOther(GlobalTTLId());
 	});
@@ -691,9 +688,6 @@ void SetupGlobalTTLList(
 	) | rpl::start_with_next([=] {
 		session->api().selfDestruct().reload();
 	}, container->lifetime());
-
-	AddSkip(container);
-	AddDividerText(container, tr::lng_settings_ttl_about());
 }
 
 void SetupSecurity(
@@ -704,19 +698,24 @@ void SetupSecurity(
 	AddSkip(container, st::settingsPrivacySkip);
 	AddSubsectionTitle(container, tr::lng_settings_security());
 
-	SetupBlockedList(
-		controller,
-		container,
-		rpl::duplicate(updateTrigger),
-		showOther);
-	SetupSessionsList(
+	SetupCloudPassword(controller, container, showOther);
+	SetupGlobalTTLList(
 		controller,
 		container,
 		rpl::duplicate(updateTrigger),
 		showOther);
 	SetupLocalPasscode(controller, container, showOther);
-	SetupCloudPassword(controller, container, showOther);
-	SetupGlobalTTLList(
+	SetupBlockedList(
+		controller,
+		container,
+		rpl::duplicate(updateTrigger),
+		showOther);
+	SetupWebsitesList(
+		controller,
+		container,
+		rpl::duplicate(updateTrigger),
+		showOther);
+	SetupSessionsList(
 		controller,
 		container,
 		rpl::duplicate(updateTrigger),
@@ -836,6 +835,53 @@ void AddPrivacyButton(
 				value));
 		});
 	});
+}
+
+void SetupArchiveAndMute(
+		not_null<Window::SessionController*> controller,
+		not_null<Ui::VerticalLayout*> container) {
+	using namespace rpl::mappers;
+
+	const auto wrap = container->add(
+		object_ptr<Ui::SlideWrap<Ui::VerticalLayout>>(
+			container,
+			object_ptr<Ui::VerticalLayout>(container)));
+	const auto inner = wrap->entity();
+
+	AddSkip(inner);
+	AddSubsectionTitle(inner, tr::lng_settings_new_unknown());
+
+	const auto session = &controller->session();
+
+	const auto privacy = &session->api().globalPrivacy();
+	privacy->reload();
+	AddButton(
+		inner,
+		tr::lng_settings_auto_archive(),
+		st::settingsButtonNoIcon
+	)->toggleOn(
+		privacy->archiveAndMute()
+	)->toggledChanges(
+	) | rpl::filter([=](bool toggled) {
+		return toggled != privacy->archiveAndMuteCurrent();
+	}) | rpl::start_with_next([=](bool toggled) {
+		privacy->updateArchiveAndMute(toggled);
+	}, container->lifetime());
+
+	AddSkip(inner);
+	AddDividerText(inner, tr::lng_settings_auto_archive_about());
+
+	auto shown = rpl::single(
+		false
+	) | rpl::then(session->api().globalPrivacy().showArchiveAndMute(
+	) | rpl::filter(_1) | rpl::take(1));
+	auto premium = Data::AmPremiumValue(&controller->session());
+
+	using namespace rpl::mappers;
+	wrap->toggleOn(rpl::combine(
+		std::move(shown),
+		std::move(premium),
+		_1 || _2));
 }
 
 PrivacySecurity::PrivacySecurity(

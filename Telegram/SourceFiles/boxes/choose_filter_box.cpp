@@ -15,14 +15,11 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/history.h"
 #include "lang/lang_keys.h"
 #include "main/main_session.h"
-#include "ui/filter_icons.h"
 #include "ui/text/text_utilities.h" // Ui::Text::Bold
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/popup_menu.h"
 #include "window/window_controller.h"
 #include "window/window_session_controller.h"
-#include "styles/style_settings.h"
-#include "styles/style_payments.h" // paymentsSectionButton
 #include "styles/style_media_player.h" // mediaPlayerMenuCheck
 
 namespace {
@@ -32,14 +29,28 @@ Data::ChatFilter ChangedFilter(
 		not_null<History*> history,
 		bool add) {
 	auto always = base::duplicate(filter.always());
-	if (add) {
-		always.insert(history);
-	} else {
-		always.remove(history);
-	}
 	auto never = base::duplicate(filter.never());
 	if (add) {
 		never.remove(history);
+	} else {
+		always.remove(history);
+	}
+	const auto result = Data::ChatFilter(
+		filter.id(),
+		filter.title(),
+		filter.iconEmoji(),
+		filter.flags(),
+		std::move(always),
+		filter.pinned(),
+		std::move(never));
+	const auto in = result.contains(history);
+	if (in == add) {
+		return result;
+	}
+	always = base::duplicate(result.always());
+	never = base::duplicate(result.never());
+	if (add) {
+		always.insert(history);
 	} else {
 		never.insert(history);
 	}
@@ -70,8 +81,6 @@ void ChangeFilterById(
 			MTP_int(filter.id()),
 			filter.tl()
 		)).done([=, chat = history->peer->name(), name = filter.title()] {
-			// Since only the primary window has dialogs list,
-			// We can safely show toast there.
 			const auto account = &history->session().account();
 			if (const auto controller = Core::App().windowFor(account)) {
 				controller->showToast((add
@@ -120,17 +129,19 @@ bool ChooseFilterValidator::canRemove(FilterId filterId) const {
 }
 
 ChooseFilterValidator::LimitData ChooseFilterValidator::limitReached(
-		FilterId filterId) const {
+		FilterId filterId,
+		bool always) const {
 	Expects(filterId != 0);
 
 	const auto list = _history->owner().chatsFilters().list();
 	const auto i = ranges::find(list, filterId, &Data::ChatFilter::id);
 	const auto limit = _history->owner().pinnedChatsLimit(filterId);
+	const auto &chatsList = always ? i->always() : i->never();
 	return {
 		.reached = (i != end(list))
-			&& !ranges::contains(i->always(), _history)
-			&& (i->always().size() >= limit),
-		.count = int(i->always().size()),
+			&& !ranges::contains(chatsList, _history)
+			&& (chatsList.size() >= limit),
+		.count = int(chatsList.size()),
 	};
 }
 
@@ -156,17 +167,21 @@ void FillChooseFilterMenu(
 
 		const auto contains = filter.contains(history);
 		const auto action = menu->addAction(filter.title(), [=] {
-			if (filter.contains(history)) {
-				if (validator.canRemove(id)) {
-					validator.remove(id);
-				}
-			} else if (const auto r = validator.limitReached(id); r.reached) {
+			const auto toAdd = !filter.contains(history);
+			const auto r = validator.limitReached(id, toAdd);
+			if (r.reached) {
 				controller->show(Box(
 					FilterChatsLimitBox,
 					&controller->session(),
-					r.count));
-			} else if (validator.canAdd()) {
-				validator.add(id);
+					r.count,
+					toAdd));
+				return;
+			} else if (toAdd ? validator.canAdd() : validator.canRemove(id)) {
+				if (toAdd) {
+					validator.add(id);
+				} else {
+					validator.remove(id);
+				}
 			}
 		}, contains ? &st::mediaPlayerMenuCheck : nullptr);
 		action->setEnabled(contains

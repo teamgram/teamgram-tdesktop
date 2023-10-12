@@ -12,6 +12,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "spellcheck/spellcheck_types.h" // LanguageId.
 #include "ui/empty_userpic.h"
 #include "ui/effects/animations.h"
+#include "ui/effects/ripple_animation.h"
 #include "ui/chat/message_bubble.h"
 
 struct WebPageData;
@@ -145,6 +146,7 @@ struct HistoryMessageSponsored : public RuntimeComponent<HistoryMessageSponsored
 	Type type = Type::User;
 	bool recommended = false;
 	bool isForceUserpicDisplay = false;
+	QString externalLink;
 };
 
 class ReplyToMessagePointer final {
@@ -307,6 +309,11 @@ struct HistoryMessageReply
 	bool topicPost = false;
 	bool storyReply = false;
 
+	struct final {
+		mutable std::unique_ptr<Ui::RippleAnimation> animation;
+		QPoint lastPoint;
+	} ripple;
+
 };
 
 struct HistoryMessageTranslation
@@ -420,7 +427,9 @@ public:
 		virtual void paintButtonLoading(
 			QPainter &p,
 			const Ui::ChatStyle *st,
-			const QRect &rect) const = 0;
+			const QRect &rect,
+			int outerWidth,
+			Ui::BubbleRounding rounding) const = 0;
 		virtual int minButtonWidth(
 			HistoryMessageMarkupButton::Type type) const = 0;
 
@@ -590,13 +599,22 @@ enum class HistorySelfDestructType {
 	Video,
 };
 
+struct TimeToLiveSingleView {
+	friend inline auto operator<=>(
+		TimeToLiveSingleView,
+		TimeToLiveSingleView) = default;
+	friend inline bool operator==(
+		TimeToLiveSingleView,
+		TimeToLiveSingleView) = default;
+};
+
 struct HistoryServiceSelfDestruct
 : public RuntimeComponent<HistoryServiceSelfDestruct, HistoryItem> {
 	using Type = HistorySelfDestructType;
 
 	Type type = Type::Photo;
-	crl::time timeToLive = 0;
-	crl::time destructAt = 0;
+	std::variant<crl::time, TimeToLiveSingleView> timeToLive = crl::time();
+	std::variant<crl::time, TimeToLiveSingleView> destructAt = crl::time();
 };
 
 struct HistoryServiceOngoingCall

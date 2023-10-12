@@ -35,6 +35,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_layers.h"
 #include "styles/style_boxes.h"
 #include "styles/style_info.h"
+#include "styles/style_menu_icons.h"
 #include "styles/style_window.h"
 #include "styles/style_settings.h"
 
@@ -50,13 +51,14 @@ constexpr auto kForceDisableTooltipDuration = 3 * crl::time(1000);
 }
 
 [[nodiscard]] auto NestedRestrictionLabelsList(
-		Data::RestrictionsSetOptions options) {
+	Data::RestrictionsSetOptions options)
+-> std::vector<NestedEditFlagsLabels<ChatRestrictions>> {
 	using Flag = ChatRestriction;
 
 	auto first = std::vector<RestrictionLabel>{
 		{ Flag::SendOther, tr::lng_rights_chat_send_text(tr::now) },
 	};
-	auto inner = std::vector<RestrictionLabel>{
+	auto media = std::vector<RestrictionLabel>{
 		{ Flag::SendPhotos, tr::lng_rights_chat_photos(tr::now) },
 		{ Flag::SendVideos, tr::lng_rights_chat_videos(tr::now) },
 		{ Flag::SendVideoMessages, tr::lng_rights_chat_video_messages(tr::now) },
@@ -84,9 +86,64 @@ constexpr auto kForceDisableTooltipDuration = 3 * crl::time(1000);
 				&RestrictionLabel::flags),
 			end(second));
 	}
-	return std::vector<NestedEditFlagsLabels<ChatRestrictions>>{
+	return {
 		{ std::nullopt, std::move(first) },
-		{ tr::lng_rights_chat_send_media(), std::move(inner) },
+		{ tr::lng_rights_chat_send_media(), std::move(media) },
+		{ std::nullopt, std::move(second) },
+	};
+}
+
+[[nodiscard]] auto NestedAdminRightLabels(
+	Data::AdminRightsSetOptions options)
+-> std::vector<NestedEditFlagsLabels<ChatAdminRights>> {
+	using Flag = ChatAdminRight;
+
+	if (options.isGroup) {
+		auto result = std::vector<AdminRightLabel>{
+			{ Flag::ChangeInfo, tr::lng_rights_group_info(tr::now) },
+			{ Flag::DeleteMessages, tr::lng_rights_group_delete(tr::now) },
+			{ Flag::BanUsers, tr::lng_rights_group_ban(tr::now) },
+			{ Flag::InviteByLinkOrAdd, options.anyoneCanAddMembers
+				? tr::lng_rights_group_invite_link(tr::now)
+				: tr::lng_rights_group_invite(tr::now) },
+			{ Flag::ManageTopics, tr::lng_rights_group_topics(tr::now) },
+			{ Flag::PinMessages, tr::lng_rights_group_pin(tr::now) },
+			{ Flag::ManageCall, tr::lng_rights_group_manage_calls(tr::now) },
+			{ Flag::Anonymous, tr::lng_rights_group_anonymous(tr::now) },
+			{ Flag::AddAdmins, tr::lng_rights_add_admins(tr::now) },
+		};
+		if (!options.isForum) {
+			result.erase(
+				ranges::remove(
+					result,
+					Flag::ManageTopics | Flag(),
+					&AdminRightLabel::flags),
+				end(result));
+		}
+		return { { std::nullopt, std::move(result) } };
+	}
+	auto first = std::vector<AdminRightLabel>{
+		{ Flag::ChangeInfo, tr::lng_rights_channel_info(tr::now) },
+	};
+	auto messages = std::vector<AdminRightLabel>{
+		{ Flag::PostMessages, tr::lng_rights_channel_post(tr::now) },
+		{ Flag::EditMessages, tr::lng_rights_channel_edit(tr::now) },
+		{ Flag::DeleteMessages, tr::lng_rights_channel_delete(tr::now) },
+	};
+	auto stories = std::vector<AdminRightLabel>{
+		{ Flag::PostStories, tr::lng_rights_channel_post_stories(tr::now) },
+		{ Flag::EditStories, tr::lng_rights_channel_edit_stories(tr::now) },
+		{ Flag::DeleteStories, tr::lng_rights_channel_delete_stories(tr::now) },
+	};
+	auto second = std::vector<AdminRightLabel>{
+		{ Flag::InviteByLinkOrAdd, tr::lng_rights_group_invite(tr::now) },
+		{ Flag::ManageCall, tr::lng_rights_channel_manage_calls(tr::now) },
+		{ Flag::AddAdmins, tr::lng_rights_add_admins(tr::now) },
+	};
+	return {
+		{ std::nullopt, std::move(first) },
+		{ tr::lng_rights_channel_manage(), std::move(messages) },
+		{ tr::lng_rights_channel_manage_stories(), std::move(stories) },
 		{ std::nullopt, std::move(second) },
 	};
 }
@@ -318,16 +375,15 @@ not_null<Ui::RpWidget*> AddInnerToggle(
 		button->geometryValue(
 		) | rpl::start_with_next([=](const QRect &r) {
 			const auto w = st::rightsButtonToggleWidth;
-			constexpr auto kLineWidth = int(1);
 			toggleButton->setGeometry(
 				r.x() + r.width() - w,
 				r.y(),
 				w,
 				r.height());
 			separator->setGeometry(
-				toggleButton->x() - kLineWidth,
+				toggleButton->x() - st::lineWidth,
 				r.y() + (r.height() - separatorHeight) / 2,
-				kLineWidth,
+				st::lineWidth,
 				separatorHeight);
 		}, toggleButton->lifetime());
 
@@ -402,7 +458,7 @@ not_null<Ui::RpWidget*> AddInnerToggle(
 			(s.height() - label->height()) / 2);
 		arrow->moveToLeft(
 			std::min(
-				labelLeft + label->naturalWidth(),
+				labelLeft + label->textMaxWidth(),
 				labelRight - arrow->width()),
 			(s.height() - arrow->height()) / 2);
 	}, button->lifetime());
@@ -818,7 +874,7 @@ void AddSuggestGigagroup(
 		rpl::single(QString()),
 		std::move(callback),
 		st::manageGroupTopicsButton,
-		{ &st::settingsIconAskQuestion, Settings::kIconGreen }));
+		{ &st::menuIconChatDiscuss }));
 
 	container->add(
 		object_ptr<Ui::DividerLabel>(
@@ -854,7 +910,7 @@ void AddBannedButtons(
 				ParticipantsBoxController::Role::Restricted);
 		},
 		st::manageGroupTopicsButton,
-		{ &st::settingsIconKey, Settings::kIconLightOrange }));
+		{ &st::menuIconPermissions }));
 	if (channel) {
 		container->add(EditPeerInfoBox::CreateButton(
 			container,
@@ -868,7 +924,7 @@ void AddBannedButtons(
 					ParticipantsBoxController::Role::Kicked);
 			},
 			st::manageGroupTopicsButton,
-			{ &st::settingsIconMinus, Settings::kIconRed }));
+			{ &st::menuIconRemove }));
 	}
 }
 
@@ -1031,42 +1087,11 @@ std::vector<RestrictionLabel> RestrictionLabels(
 
 std::vector<AdminRightLabel> AdminRightLabels(
 		Data::AdminRightsSetOptions options) {
-	using Flag = ChatAdminRight;
-
-	if (options.isGroup) {
-		auto result = std::vector<AdminRightLabel>{
-			{ Flag::ChangeInfo, tr::lng_rights_group_info(tr::now) },
-			{ Flag::DeleteMessages, tr::lng_rights_group_delete(tr::now) },
-			{ Flag::BanUsers, tr::lng_rights_group_ban(tr::now) },
-			{ Flag::InviteByLinkOrAdd, options.anyoneCanAddMembers
-				? tr::lng_rights_group_invite_link(tr::now)
-				: tr::lng_rights_group_invite(tr::now) },
-			{ Flag::ManageTopics, tr::lng_rights_group_topics(tr::now) },
-			{ Flag::PinMessages, tr::lng_rights_group_pin(tr::now) },
-			{ Flag::ManageCall, tr::lng_rights_group_manage_calls(tr::now) },
-			{ Flag::Anonymous, tr::lng_rights_group_anonymous(tr::now) },
-			{ Flag::AddAdmins, tr::lng_rights_add_admins(tr::now) },
-		};
-		if (!options.isForum) {
-			result.erase(
-				ranges::remove(
-					result,
-					Flag::ManageTopics | Flag(),
-					&AdminRightLabel::flags),
-				end(result));
-		}
-		return result;
-	} else {
-		return {
-			{ Flag::ChangeInfo, tr::lng_rights_channel_info(tr::now) },
-			{ Flag::PostMessages, tr::lng_rights_channel_post(tr::now) },
-			{ Flag::EditMessages, tr::lng_rights_channel_edit(tr::now) },
-			{ Flag::DeleteMessages, tr::lng_rights_channel_delete(tr::now) },
-			{ Flag::InviteByLinkOrAdd, tr::lng_rights_group_invite(tr::now) },
-			{ Flag::ManageCall, tr::lng_rights_channel_manage_calls(tr::now) },
-			{ Flag::AddAdmins, tr::lng_rights_add_admins(tr::now) }
-		};
+	auto result = std::vector<AdminRightLabel>();
+	for (const auto &[_, r] : NestedAdminRightLabels(options)) {
+		result.insert(result.end(), r.begin(), r.end());
 	}
+	return result;
 }
 
 EditFlagsControl<ChatRestrictions> CreateEditRestrictions(
@@ -1107,7 +1132,7 @@ EditFlagsControl<ChatAdminRights> CreateEditAdminRights(
 		rights,
 		{
 			.header = std::move(header),
-			.labels = { { std::nullopt, AdminRightLabels(options) } },
+			.labels = NestedAdminRightLabels(options),
 			.disabledMessages = std::move(disabledMessages),
 		});
 	result.widget = std::move(widget);

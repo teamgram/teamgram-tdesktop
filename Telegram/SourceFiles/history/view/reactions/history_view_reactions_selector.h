@@ -7,9 +7,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #pragma once
 
-#include "history/view/reactions/history_view_reactions_strip.h"
-#include "data/data_message_reactions.h"
+#include "base/expected.h"
 #include "base/unique_qptr.h"
+#include "data/data_message_reactions.h"
+#include "history/view/reactions/history_view_reactions_strip.h"
 #include "ui/effects/animation_value.h"
 #include "ui/effects/round_area_with_shadow.h"
 #include "ui/rp_widget.h"
@@ -60,9 +61,10 @@ public:
 	[[nodiscard]] bool useTransparency() const;
 
 	int countWidth(int desiredWidth, int maxWidth);
-	[[nodiscard]] QMargins extentsForShadow() const;
+	[[nodiscard]] QMargins marginsForShadow() const;
 	[[nodiscard]] int extendTopForCategories() const;
 	[[nodiscard]] int minimalHeight() const;
+	[[nodiscard]] int countAppearedWidth(float64 progress) const;
 	void setSpecialExpandTopSkip(int skip);
 	void initGeometry(int innerTop);
 	void beforeDestroy();
@@ -93,6 +95,8 @@ private:
 		float64 radius = 0.;
 		float64 expanding = 0.;
 		int finalBottom = 0;
+		int frame = 0;
+		QRect outer;
 	};
 
 	Selector(
@@ -115,11 +119,14 @@ private:
 	void paintAppearing(QPainter &p);
 	void paintCollapsed(QPainter &p);
 	void paintExpanding(Painter &p, float64 progress);
-	ExpandingRects paintExpandingBg(QPainter &p, float64 progress);
+	void paintExpandingBg(QPainter &p, const ExpandingRects &rects);
 	void paintFadingExpandIcon(QPainter &p, float64 progress);
 	void paintExpanded(QPainter &p);
+	void paintNonTransparentExpandRect(QPainter &p, const QRect &) const;
 	void paintBubble(QPainter &p, int innerWidth);
 	void paintBackgroundToBuffer();
+
+	ExpandingRects updateExpandingRects(float64 progress);
 
 	[[nodiscard]] int recentCount() const;
 	[[nodiscard]] int countSkipLeft() const;
@@ -208,5 +215,14 @@ AttachSelectorResult AttachSelectorToMenu(
 	Fn<void(ChosenReaction)> chosen,
 	Fn<void(FullMsgId)> showPremiumPromo,
 	IconFactory iconFactory);
+
+[[nodiscard]] auto AttachSelectorToMenu(
+	not_null<Ui::PopupMenu*> menu,
+	QPoint desiredPosition,
+	const style::EmojiPan &st,
+	std::shared_ptr<ChatHelpers::Show> show,
+	const Data::PossibleItemReactionsRef &reactions,
+	IconFactory iconFactory
+) -> base::expected<not_null<Selector*>, AttachSelectorResult>;
 
 } // namespace HistoryView::Reactions

@@ -11,6 +11,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "api/api_text_entities.h"
 #include "data/data_document.h"
 #include "data/data_changes.h"
+#include "data/data_channel.h"
 #include "data/data_file_origin.h"
 #include "data/data_photo.h"
 #include "data/data_photo_media.h"
@@ -30,6 +31,79 @@ namespace Data {
 namespace {
 
 using UpdateFlag = StoryUpdate::Flag;
+
+[[nodiscard]] StoryArea ParseArea(const MTPMediaAreaCoordinates &area) {
+	const auto &data = area.data();
+	const auto center = QPointF(data.vx().v, data.vy().v);
+	const auto size = QSizeF(data.vw().v, data.vh().v);
+	const auto corner = center - QPointF(size.width(), size.height()) / 2.;
+	return {
+		.geometry = { corner / 100., size / 100. },
+		.rotation = data.vrotation().v,
+	};
+}
+
+[[nodiscard]] TextWithEntities StripLinks(TextWithEntities text) {
+	const auto link = [&](const EntityInText &entity) {
+		return (entity.type() == EntityType::CustomUrl)
+			|| (entity.type() == EntityType::Url)
+			|| (entity.type() == EntityType::Mention)
+			|| (entity.type() == EntityType::Hashtag);
+	};
+	text.entities.erase(
+		ranges::remove_if(text.entities, link),
+		text.entities.end());
+	return text;
+}
+
+[[nodiscard]] auto ParseLocation(const MTPMediaArea &area)
+-> std::optional<StoryLocation> {
+	auto result = std::optional<StoryLocation>();
+	area.match([&](const MTPDmediaAreaVenue &data) {
+		data.vgeo().match([&](const MTPDgeoPoint &geo) {
+			result.emplace(StoryLocation{
+				.area = ParseArea(data.vcoordinates()),
+				.point = Data::LocationPoint(geo),
+				.title = qs(data.vtitle()),
+				.address = qs(data.vaddress()),
+				.provider = qs(data.vprovider()),
+				.venueId = qs(data.vvenue_id()),
+				.venueType = qs(data.vvenue_type()),
+			});
+		}, [](const MTPDgeoPointEmpty &) {
+		});
+	}, [&](const MTPDmediaAreaGeoPoint &data) {
+		data.vgeo().match([&](const MTPDgeoPoint &geo) {
+			result.emplace(StoryLocation{
+				.area = ParseArea(data.vcoordinates()),
+				.point = Data::LocationPoint(geo),
+			});
+		}, [](const MTPDgeoPointEmpty &) {
+		});
+	}, [&](const MTPDmediaAreaSuggestedReaction &data) {
+	}, [&](const MTPDinputMediaAreaVenue &data) {
+		LOG(("API Error: Unexpected inputMediaAreaVenue in API data."));
+	});
+	return result;
+}
+
+[[nodiscard]] auto ParseSuggestedReaction(const MTPMediaArea &area)
+-> std::optional<SuggestedReaction> {
+	auto result = std::optional<SuggestedReaction>();
+	area.match([&](const MTPDmediaAreaVenue &data) {
+	}, [&](const MTPDmediaAreaGeoPoint &data) {
+	}, [&](const MTPDmediaAreaSuggestedReaction &data) {
+		result.emplace(SuggestedReaction{
+			.area = ParseArea(data.vcoordinates()),
+			.reaction = Data::ReactionFromMTP(data.vreaction()),
+			.flipped = data.is_flipped(),
+			.dark = data.is_dark(),
+		});
+	}, [&](const MTPDinputMediaAreaVenue &data) {
+		LOG(("API Error: Unexpected inputMediaAreaVenue in API data."));
+	});
+	return result;
+}
 
 } // namespace
 
@@ -234,14 +308,14 @@ Image *Story::replyPreview() const {
 TextWithEntities Story::inReplyText() const {
 	const auto type = tr::lng_in_dlg_story(tr::now);
 	return _caption.text.isEmpty()
-		? Ui::Text::PlainLink(type)
+		? Ui::Text::Colorized(type)
 		: tr::lng_dialogs_text_media(
 			tr::now,
 			lt_media_part,
 			tr::lng_dialogs_text_media_wrapped(
 				tr::now,
 				lt_media,
-				Ui::Text::PlainLink(type),
+				Ui::Text::Colorized(type),
 				Ui::Text::WithEntities),
 			lt_caption,
 			_caption,
@@ -276,8 +350,17 @@ bool Story::edited() const {
 	return _edited;
 }
 
-bool Story::canDownload() const {
-	return /*!forbidsForward() || */_peer->isSelf();
+bool Story::out() const {
+	return _out;
+}
+
+bool Story::canDownloadIfPremium() const {
+	return !forbidsForward() || _peer->isSelf();
+}
+
+bool Story::canDownloadChecked() const {
+	return _peer->isSelf()
+		|| (canDownloadIfPremium() && _peer->session().premium());
 }
 
 bool Story::canShare() const {
@@ -285,6 +368,10 @@ bool Story::canShare() const {
 }
 
 bool Story::canDelete() const {
+	if (const auto channel = _peer->asChannel()) {
+		return channel->canDeleteStories()
+			|| (out() && channel->canPostStories());
+	}
 	return _peer->isSelf();
 }
 
@@ -296,8 +383,7 @@ bool Story::hasDirectLink() const {
 	if (!_privacyPublic || (!_pinned && expired())) {
 		return false;
 	}
-	const auto user = _peer->asUser();
-	return user && !user->username().isEmpty();
+	return !_peer->userName().isEmpty();
 }
 
 std::optional<QString> Story::errorTextForForward(
@@ -330,55 +416,83 @@ const TextWithEntities &Story::caption() const {
 	return unsupported() ? empty : _caption;
 }
 
+Data::ReactionId Story::sentReactionId() const {
+	return _sentReactionId;
+}
+
+void Story::setReactionId(Data::ReactionId id) {
+	if (_sentReactionId != id) {
+		const auto wasEmpty = _sentReactionId.empty();
+		changeSuggestedReactionCount(_sentReactionId, -1);
+		_sentReactionId = id;
+		changeSuggestedReactionCount(id, 1);
+
+		if (_views.known && _sentReactionId.empty() != wasEmpty) {
+			const auto delta = wasEmpty ? 1 : -1;
+			if (_views.reactions + delta >= 0) {
+				_views.reactions += delta;
+			}
+		}
+		session().changes().storyUpdated(this, UpdateFlag::Reaction);
+	}
+}
+
+void Story::changeSuggestedReactionCount(Data::ReactionId id, int delta) {
+	if (id.empty() || !_peer->isChannel()) {
+		return;
+	}
+	for (auto &suggested : _suggestedReactions) {
+		if (suggested.reaction == id && suggested.count + delta >= 0) {
+			suggested.count += delta;
+		}
+	}
+}
+
 const std::vector<not_null<PeerData*>> &Story::recentViewers() const {
 	return _recentViewers;
 }
 
-const std::vector<StoryView> &Story::viewsList() const {
-	return _viewsList;
-}
-
-int Story::views() const {
+const StoryViews &Story::viewsList() const {
 	return _views;
 }
 
+int Story::views() const {
+	return _views.total;
+}
+
+int Story::reactions() const {
+	return _views.reactions;
+}
+
 void Story::applyViewsSlice(
-		const std::optional<StoryView> &offset,
-		const std::vector<StoryView> &slice,
-		int total) {
-	const auto changed = (_views != total);
-	_views = total;
-	if (!offset) {
-		const auto i = _viewsList.empty()
-			? end(slice)
-			: ranges::find(slice, _viewsList.front());
-		const auto merge = (i != end(slice))
-			&& !ranges::contains(slice, _viewsList.back());
-		if (merge) {
-			_viewsList.insert(begin(_viewsList), begin(slice), i);
-		} else {
-			_viewsList = slice;
-		}
-	} else if (!slice.empty()) {
-		const auto i = ranges::find(_viewsList, *offset);
-		const auto merge = (i != end(_viewsList))
-			&& !ranges::contains(_viewsList, slice.back());
-		if (merge) {
-			const auto after = i + 1;
-			if (after == end(_viewsList)) {
-				_viewsList.insert(after, begin(slice), end(slice));
-			} else {
-				const auto j = ranges::find(slice, _viewsList.back());
-				if (j != end(slice)) {
-					_viewsList.insert(end(_viewsList), j + 1, end(slice));
-				}
-			}
+		const QString &offset,
+		const StoryViews &slice) {
+	const auto changed = (_views.reactions != slice.reactions)
+		|| (_views.total != slice.total);
+	_views.reactions = slice.reactions;
+	_views.total = slice.total;
+	_views.known = true;
+	if (offset.isEmpty()) {
+		_views = slice;
+	} else if (_views.nextOffset == offset) {
+		_views.list.insert(
+			end(_views.list),
+			begin(slice.list),
+			end(slice.list));
+		_views.nextOffset = slice.nextOffset;
+		if (_views.nextOffset.isEmpty()) {
+			_views.total = int(_views.list.size());
+			_views.reactions = _views.total
+				- ranges::count(
+					_views.list,
+					Data::ReactionId(),
+					&StoryView::reaction);
 		}
 	}
-	const auto known = int(_viewsList.size());
+	const auto known = int(_views.list.size());
 	if (known >= _recentViewers.size()) {
 		const auto take = std::min(known, kRecentViewersMax);
-		auto viewers = _viewsList
+		auto viewers = _views.list
 			| ranges::views::take(take)
 			| ranges::views::transform(&StoryView::peer)
 			| ranges::to_vector;
@@ -388,15 +502,23 @@ void Story::applyViewsSlice(
 				// Count not changed, but list of recent viewers changed.
 				_peer->session().changes().storyUpdated(
 					this,
-					UpdateFlag::ViewsAdded);
+					UpdateFlag::ViewsChanged);
 			}
 		}
 	}
 	if (changed) {
 		_peer->session().changes().storyUpdated(
 			this,
-			UpdateFlag::ViewsAdded);
+			UpdateFlag::ViewsChanged);
 	}
+}
+
+const std::vector<StoryLocation> &Story::locations() const {
+	return _locations;
+}
+
+const std::vector<SuggestedReaction> &Story::suggestedReactions() const {
+	return _suggestedReactions;
 }
 
 void Story::applyChanges(
@@ -406,6 +528,46 @@ void Story::applyChanges(
 	applyFields(std::move(media), data, now, false);
 }
 
+Story::ViewsCounts Story::parseViewsCounts(
+		const MTPDstoryViews &data,
+		const Data::ReactionId &mine) {
+	auto result = ViewsCounts{
+		.views = data.vviews_count().v,
+		.reactions = data.vreactions_count().value_or_empty(),
+	};
+	if (const auto list = data.vrecent_viewers()) {
+		result.viewers.reserve(list->v.size());
+		auto &owner = _peer->owner();
+		auto &&cut = list->v
+			| ranges::views::take(kRecentViewersMax);
+		for (const auto &id : cut) {
+			result.viewers.push_back(owner.peer(peerFromUser(id)));
+		}
+	}
+	auto total = 0;
+	if (const auto list = data.vreactions()
+		; list && _peer->isChannel()) {
+		result.reactionsCounts.reserve(list->v.size());
+		for (const auto &reaction : list->v) {
+			const auto &data = reaction.data();
+			const auto id = Data::ReactionFromMTP(data.vreaction());
+			const auto count = data.vcount().v;
+			result.reactionsCounts[id] = count;
+			total += count;
+		}
+	}
+	if (!mine.empty()) {
+		if (auto &count = result.reactionsCounts[mine]; !count) {
+			count = 1;
+			++total;
+		}
+	}
+	if (result.reactions < total) {
+		result.reactions = total;
+	}
+	return result;
+}
+
 void Story::applyFields(
 		StoryMedia media,
 		const MTPDstoryItem &data,
@@ -413,6 +575,11 @@ void Story::applyFields(
 		bool initial) {
 	_lastUpdateTime = now;
 
+	const auto reaction = data.is_min()
+		? _sentReactionId
+		: data.vsent_reaction()
+		? Data::ReactionFromMTP(*data.vsent_reaction())
+		: Data::ReactionId();
 	const auto pinned = data.is_pinned();
 	const auto edited = data.is_edited();
 	const auto privacy = data.is_public()
@@ -425,25 +592,48 @@ void Story::applyFields(
 		? StoryPrivacy::SelectedContacts
 		: StoryPrivacy::Other;
 	const auto noForwards = data.is_noforwards();
+	const auto out = data.is_min() ? _out : data.is_out();
 	auto caption = TextWithEntities{
 		data.vcaption().value_or_empty(),
 		Api::EntitiesFromMTP(
 			&owner().session(),
 			data.ventities().value_or_empty()),
 	};
-	auto views = _views;
-	auto viewers = std::vector<not_null<PeerData*>>();
-	if (!data.is_min()) {
-		if (const auto info = data.vviews()) {
-			views = info->data().vviews_count().v;
-			if (const auto list = info->data().vrecent_viewers()) {
-				viewers.reserve(list->v.size());
-				auto &owner = _peer->owner();
-				auto &&cut = list->v
-					| ranges::views::take(kRecentViewersMax);
-				for (const auto &id : cut) {
-					viewers.push_back(owner.peer(peerFromUser(id)));
+	if (const auto user = _peer->asUser()) {
+		if (!user->isVerified() && !user->isPremium()) {
+			caption = StripLinks(std::move(caption));
+		}
+	}
+	auto counts = ViewsCounts();
+	auto viewsKnown = _views.known;
+	if (const auto info = data.vviews()) {
+		counts = parseViewsCounts(info->data(), reaction);
+		viewsKnown = true;
+	} else {
+		counts.views = _views.total;
+		counts.reactions = _views.reactions;
+		counts.viewers = _recentViewers;
+		for (const auto &suggested : _suggestedReactions) {
+			if (const auto count = suggested.count) {
+				counts.reactionsCounts[suggested.reaction] = count;
+			}
+		}
+	}
+	auto locations = std::vector<StoryLocation>();
+	auto suggestedReactions = std::vector<SuggestedReaction>();
+	if (const auto areas = data.vmedia_areas()) {
+		locations.reserve(areas->v.size());
+		suggestedReactions.reserve(areas->v.size());
+		for (const auto &area : areas->v) {
+			if (const auto location = ParseLocation(area)) {
+				locations.push_back(*location);
+			} else if (auto reaction = ParseSuggestedReaction(area)) {
+				const auto i = counts.reactionsCounts.find(
+					reaction->reaction);
+				if (i != end(counts.reactionsCounts)) {
+					reaction->count = i->second;
 				}
+				suggestedReactions.push_back(*reaction);
 			}
 		}
 	}
@@ -452,33 +642,46 @@ void Story::applyFields(
 	const auto editedChanged = (_edited != edited);
 	const auto mediaChanged = (_media != media);
 	const auto captionChanged = (_caption != caption);
-	const auto viewsChanged = (_views != views)
-		|| (_recentViewers != viewers);
+	const auto locationsChanged = (_locations != locations);
+	const auto suggestedReactionsChanged
+		= (_suggestedReactions != suggestedReactions);
+	const auto reactionChanged = (_sentReactionId != reaction);
 
+	_out = out;
 	_privacyPublic = (privacy == StoryPrivacy::Public);
 	_privacyCloseFriends = (privacy == StoryPrivacy::CloseFriends);
 	_privacyContacts = (privacy == StoryPrivacy::Contacts);
 	_privacySelectedContacts = (privacy == StoryPrivacy::SelectedContacts);
-	_noForwards = noForwards;
 	_edited = edited;
 	_pinned = pinned;
 	_noForwards = noForwards;
-	if (viewsChanged) {
-		_views = views;
-		_recentViewers = std::move(viewers);
-	}
 	if (mediaChanged) {
 		_media = std::move(media);
 	}
 	if (captionChanged) {
 		_caption = std::move(caption);
 	}
+	if (locationsChanged) {
+		_locations = std::move(locations);
+	}
+	if (suggestedReactionsChanged) {
+		_suggestedReactions = std::move(suggestedReactions);
+	}
+	if (reactionChanged) {
+		_sentReactionId = reaction;
+	}
+	updateViewsCounts(std::move(counts), viewsKnown, initial);
 
-	const auto changed = (editedChanged || captionChanged || mediaChanged);
-	if (!initial && (changed || viewsChanged)) {
+	const auto changed = editedChanged
+		|| captionChanged
+		|| mediaChanged
+		|| locationsChanged;
+	const auto reactionsChanged = reactionChanged
+		|| suggestedReactionsChanged;
+	if (!initial && (changed || reactionsChanged)) {
 		_peer->session().changes().storyUpdated(this, UpdateFlag()
 			| (changed ? UpdateFlag::Edited : UpdateFlag())
-			| (viewsChanged ? UpdateFlag::ViewsAdded : UpdateFlag()));
+			| (reactionsChanged ? UpdateFlag::Reaction : UpdateFlag()));
 	}
 	if (!initial && (captionChanged || mediaChanged)) {
 		if (const auto item = _peer->owner().stories().lookupItem(this)) {
@@ -488,6 +691,44 @@ void Story::applyFields(
 	}
 	if (pinnedChanged) {
 		_peer->owner().stories().savedStateChanged(this);
+	}
+}
+
+void Story::updateViewsCounts(ViewsCounts &&counts, bool known, bool initial) {
+	const auto viewsChanged = (_views.total != counts.views)
+		|| (_views.reactions != counts.reactions)
+		|| (_recentViewers != counts.viewers);
+	if (_views.reactions != counts.reactions
+		|| _views.total != counts.views
+		|| _views.known != known) {
+		_views = StoryViews{
+			.reactions = counts.reactions,
+			.total = counts.views,
+			.known = known,
+		};
+	}
+	if (viewsChanged) {
+		_recentViewers = std::move(counts.viewers);
+		_peer->session().changes().storyUpdated(
+			this,
+			UpdateFlag::ViewsChanged);
+	}
+}
+
+void Story::applyViewsCounts(const MTPDstoryViews &data) {
+	auto counts = parseViewsCounts(data, _sentReactionId);
+	auto suggestedCountsChanged = false;
+	for (auto &suggested : _suggestedReactions) {
+		const auto i = counts.reactionsCounts.find(suggested.reaction);
+		const auto v = (i != end(counts.reactionsCounts)) ? i->second : 0;
+		if (suggested.count != v) {
+			suggested.count = v;
+			suggestedCountsChanged = true;
+		}
+	}
+	updateViewsCounts(std::move(counts), true, false);
+	if (suggestedCountsChanged) {
+		_peer->session().changes().storyUpdated(this, UpdateFlag::Reaction);
 	}
 }
 

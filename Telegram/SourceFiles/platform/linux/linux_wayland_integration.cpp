@@ -8,19 +8,18 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "platform/linux/linux_wayland_integration.h"
 
 #include "base/platform/linux/base_linux_wayland_utilities.h"
-#include "base/platform/base_platform_info.h"
 #include "base/qt_signal_producer.h"
 #include "base/flat_map.h"
-
-#include "qwayland-wayland.h"
-#include "qwayland-plasma-shell.h"
 
 #include <QtGui/QGuiApplication>
 #include <QtGui/QWindow>
 #include <qpa/qplatformnativeinterface.h>
 #include <qpa/qplatformwindow_p.h>
 
-using namespace QNativeInterface;
+#include <qwayland-wayland.h>
+#include <qwayland-plasma-shell.h>
+
+using QWlApp = QNativeInterface::QWaylandApplication;
 using namespace QNativeInterface::Private;
 using namespace base::Platform::Wayland;
 
@@ -38,11 +37,18 @@ public:
 
 } // namespace
 
-struct WaylandIntegration::Private : public AutoDestroyer<QtWayland::wl_registry> {
+struct WaylandIntegration::Private
+		: public AutoDestroyer<QtWayland::wl_registry> {
+	Private(not_null<QWlApp*> native)
+	: AutoDestroyer(wl_display_get_registry(native->display()))
+	, display(native->display()) {
+		wl_display_roundtrip(display);
+	}
+
 	QtWayland::org_kde_plasma_surface plasmaSurface(QWindow *window);
 
+	const not_null<wl_display*> display;
 	std::optional<PlasmaShell> plasmaShell;
-	rpl::lifetime lifetime;
 
 protected:
 	void registry_global(
@@ -97,42 +103,33 @@ QtWayland::org_kde_plasma_surface WaylandIntegration::Private::plasmaSurface(
 		if (it != plasmaShell->surfaces.cend()) {
 			plasmaShell->surfaces.erase(it);
 		}
-	}, lifetime);
+	}, result.first->second.lifetime());
 
 	return result.first->second;
 }
 
 WaylandIntegration::WaylandIntegration()
-: _private(std::make_unique<Private>()) {
-	const auto native = qApp->nativeInterface<QWaylandApplication>();
-	if (!native) {
-		return;
-	}
-
-	const auto display = native->display();
-	if (!display) {
-		return;
-	}
-
-	_private->init(wl_display_get_registry(display));
-	wl_display_roundtrip(display);
+: _private(std::make_unique<Private>(qApp->nativeInterface<QWlApp>())) {
 }
 
 WaylandIntegration::~WaylandIntegration() = default;
 
 WaylandIntegration *WaylandIntegration::Instance() {
-	if (!IsWayland()) return nullptr;
-	static std::optional<WaylandIntegration> instance(std::in_place);
-	[[maybe_unused]] static const auto Inited = [] {
+	const auto native = qApp->nativeInterface<QWlApp>();
+	if (!native) return nullptr;
+	static std::optional<WaylandIntegration> instance;
+	if (instance && native->display() != instance->_private->display) {
+		instance.reset();
+	}
+	if (!instance) {
+		instance.emplace();
 		base::qt_signal_producer(
 			QGuiApplication::platformNativeInterface(),
 			&QObject::destroyed
 		) | rpl::start_with_next([] {
 			instance = std::nullopt;
-		}, instance->_private->lifetime);
-		return true;
-	}();
-	if (!instance) return nullptr;
+		}, instance->_private->lifetime());
+	}
 	return &*instance;
 }
 

@@ -12,7 +12,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "api/api_chat_participants.h"
 #include "api/api_report.h"
 #include "api/api_sending.h"
-#include "api/api_text_entities.h"
 #include "api/api_send_progress.h"
 #include "api/api_unread_things.h"
 #include "ui/boxes/confirm_box.h"
@@ -32,12 +31,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/widgets/inner_dropdown.h"
 #include "ui/widgets/dropdown_menu.h"
 #include "ui/widgets/labels.h"
-#include "ui/widgets/shadow.h"
 #include "ui/effects/ripple_animation.h"
 #include "ui/effects/message_sending_animation_controller.h"
 #include "ui/text/text_utilities.h" // Ui::Text::ToUpper
 #include "ui/text/format_values.h"
-#include "ui/chat/forward_options_box.h"
 #include "ui/chat/message_bar.h"
 #include "ui/chat/attach/attach_send_files_way.h"
 #include "ui/chat/choose_send_as.h"
@@ -62,7 +59,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_document.h"
 #include "data/data_photo.h"
 #include "data/data_photo_media.h"
-#include "data/data_media_types.h"
 #include "data/data_channel.h"
 #include "data/data_chat.h"
 #include "data/data_forum.h"
@@ -107,7 +103,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/view/history_view_translate_bar.h"
 #include "history/view/media/history_view_media.h"
 #include "profile/profile_block_group_members.h"
-#include "info/info_memento.h"
 #include "core/click_handler_types.h"
 #include "chat_helpers/tabbed_panel.h"
 #include "chat_helpers/tabbed_selector.h"
@@ -138,7 +133,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/chat/continuous_scroll.h"
 #include "ui/widgets/popup_menu.h"
 #include "ui/item_text_options.h"
-#include "ui/unread_badge.h"
 #include "main/main_session.h"
 #include "main/main_session_settings.h"
 #include "main/session/send_as_peers.h"
@@ -152,7 +146,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "inline_bots/bot_attach_web_view.h"
 #include "info/profile/info_profile_values.h" // SharedMediaCountValue.
 #include "chat_helpers/emoji_suggestions_widget.h"
-#include "core/crash_reports.h"
 #include "core/shortcuts.h"
 #include "core/ui_integration.h"
 #include "support/support_common.h"
@@ -160,12 +153,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "support/support_preload.h"
 #include "dialogs/dialogs_key.h"
 #include "calls/calls_instance.h"
-#include "api/api_bot.h"
 #include "styles/style_chat.h"
 #include "styles/style_dialogs.h"
 #include "styles/style_window.h"
 #include "styles/style_boxes.h"
-#include "styles/style_profile.h"
 #include "styles/style_chat_helpers.h"
 #include "styles/style_info.h"
 
@@ -313,25 +304,30 @@ HistoryWidget::HistoryWidget(
 	_joinChannel->addClickHandler([=] { joinChannel(); });
 	_muteUnmute->addClickHandler([=] { toggleMuteUnmute(); });
 	_reportMessages->addClickHandler([=] { reportSelectedMessages(); });
-	connect(
-		_field,
-		&Ui::InputField::submitted,
-		[=](Qt::KeyboardModifiers modifiers) { sendWithModifiers(modifiers); });
-	connect(_field, &Ui::InputField::cancelled, [=] {
+	_field->submits(
+	) | rpl::start_with_next([=](Qt::KeyboardModifiers modifiers) {
+		sendWithModifiers(modifiers);
+	}, _field->lifetime());
+	_field->cancelled(
+	) | rpl::start_with_next([=] {
 		escape();
-	});
-	connect(_field, &Ui::InputField::tabbed, [=] {
+	}, _field->lifetime());
+	_field->tabbed(
+	) | rpl::start_with_next([=] {
 		fieldTabbed();
-	});
-	connect(_field, &Ui::InputField::resized, [=] {
+	}, _field->lifetime());
+	_field->heightChanges(
+	) | rpl::start_with_next([=] {
 		fieldResized();
-	});
-	connect(_field, &Ui::InputField::focused, [=] {
+	}, _field->lifetime());
+	_field->focusedChanges(
+	) | rpl::filter(rpl::mappers::_1) | rpl::start_with_next([=] {
 		fieldFocused();
-	});
-	connect(_field, &Ui::InputField::changed, [=] {
+	}, _field->lifetime());
+	_field->changes(
+	) | rpl::start_with_next([=] {
 		fieldChanged();
-	});
+	}, _field->lifetime());
 	connect(
 		controller->widget()->windowHandle(),
 		&QWindow::visibleChanged,
@@ -1806,7 +1802,10 @@ bool HistoryWidget::notify_switchInlineBotButtonReceived(
 void HistoryWidget::tryProcessKeyInput(not_null<QKeyEvent*> e) {
 	e->accept();
 	keyPressEvent(e);
-	if (!e->isAccepted() && _canSendTexts && _field->isVisible()) {
+	if (!e->isAccepted()
+		&& _canSendTexts
+		&& _field->isVisible()
+		&& !e->text().isEmpty()) {
 		_field->setFocusFast();
 		QCoreApplication::sendEvent(_field->rawTextEdit(), e);
 	}
@@ -1915,12 +1914,6 @@ bool HistoryWidget::applyDraft(FieldHistoryAction fieldHistoryAction) {
 	_textUpdateEvents = TextUpdateEvent::SaveDraft
 		| TextUpdateEvent::SendTyping;
 
-	// Save links from _field to _parsedLinks without generating preview.
-	_previewState = Data::PreviewState::Cancelled;
-	_fieldLinksParser->parseNow();
-	_parsedLinks = _fieldLinksParser->list().current();
-	_previewState = draft->previewState;
-
 	_processingReplyItem = _replyEditMsg = nullptr;
 	_processingReplyId = _replyToId = 0;
 	setEditMsgId(editMsgId);
@@ -1938,6 +1931,19 @@ bool HistoryWidget::applyDraft(FieldHistoryAction fieldHistoryAction) {
 		_processingReplyId = draft ? draft->msgId : MsgId();
 		processReply();
 	}
+
+	// Save links from _field to _parsedLinks without generating preview.
+	_previewState = Data::PreviewState::Cancelled;
+	if (_editMsgId) {
+		_fieldLinksParser->setDisabled(!_replyEditMsg
+			|| (_replyEditMsg->media()
+				&& !_replyEditMsg->media()->webpage()));
+	}
+	_fieldLinksParser->parseNow();
+	_parsedLinks = _fieldLinksParser->list().current();
+	_previewState = draft->previewState;
+	checkPreview();
+
 	return true;
 }
 
@@ -2014,18 +2020,26 @@ void HistoryWidget::showHistory(
 				return;
 			}
 			if (!IsServerMsgId(showAtMsgId)
+				&& !IsClientMsgId(showAtMsgId)
 				&& !IsServerMsgId(-showAtMsgId)) {
 				// To end or to unread.
 				destroyUnreadBar();
 			}
 			const auto canShowNow = _history->isReadyFor(showAtMsgId);
 			if (!canShowNow) {
-				DEBUG_LOG(("JumpToEnd(%1, %2, %3): Showing delayed at %4."
-					).arg(_history->peer->name()
-					).arg(_history->inboxReadTillId().bare
-					).arg(Logs::b(_history->loadedAtBottom())
-					).arg(showAtMsgId.bare));
-				delayedShowAt(showAtMsgId);
+				if (!_firstLoadRequest) {
+					DEBUG_LOG(("JumpToEnd(%1, %2, %3): Showing delayed at %4."
+						).arg(_history->peer->name()
+						).arg(_history->inboxReadTillId().bare
+						).arg(Logs::b(_history->loadedAtBottom())
+						).arg(showAtMsgId.bare));
+					delayedShowAt(showAtMsgId);
+				} else if (_showAtMsgId != showAtMsgId) {
+					clearAllLoadRequests();
+					setMsgId(showAtMsgId);
+					firstLoadMessages();
+					doneShow();
+				}
 			} else {
 				_history->forgetScrollState();
 				if (_migrated) {
@@ -2469,6 +2483,9 @@ void HistoryWidget::registerDraftSource() {
 void HistoryWidget::setEditMsgId(MsgId msgId) {
 	unregisterDraftSources();
 	_editMsgId = msgId;
+	if (_fieldLinksParser && !_editMsgId) {
+		_fieldLinksParser->setDisabled(false);
+	}
 	if (!msgId) {
 		_canReplaceMedia = false;
 	}
@@ -4312,12 +4329,14 @@ void HistoryWidget::mouseMoveEvent(QMouseEvent *e) {
 }
 
 void HistoryWidget::updateOverStates(QPoint pos) {
+	const auto isReadyToForward = readyToForward();
+	const auto skip = isReadyToForward ? 0 : st::historyReplySkip;
 	const auto replyEditForwardInfoRect = QRect(
-		st::historyReplySkip,
+		skip,
 		_field->y() - st::historySendPadding - st::historyReplyHeight,
-		width() - st::historyReplySkip - _fieldBarCancel->width(),
+		width() - skip - _fieldBarCancel->width(),
 		st::historyReplyHeight);
-	auto inReplyEditForward = (_editMsgId || replyToId() || readyToForward())
+	auto inReplyEditForward = (_editMsgId || replyToId() || isReadyToForward)
 		&& replyEditForwardInfoRect.contains(pos);
 	auto inPhotoEdit = inReplyEditForward
 		&& _photoEditMedia
@@ -4556,7 +4575,7 @@ bool HistoryWidget::isChoosingTheme() const {
 
 bool HistoryWidget::isMuteUnmute() const {
 	return _peer
-		&& ((_peer->isBroadcast() && !_peer->asChannel()->canPublish())
+		&& ((_peer->isBroadcast() && !_peer->asChannel()->canPostMessages())
 			|| (_peer->isGigagroup() && !Data::CanSendAnything(_peer))
 			|| _peer->isRepliesChat());
 }
@@ -5613,6 +5632,7 @@ int HistoryWidget::countInitialScrollTop() {
 		return _list->historyScrollTop();
 	} else if (_showAtMsgId
 		&& (IsServerMsgId(_showAtMsgId)
+			|| IsClientMsgId(_showAtMsgId)
 			|| IsServerMsgId(-_showAtMsgId))) {
 		const auto item = getItemFromHistoryOrMigrated(_showAtMsgId);
 		const auto itemTop = _list->itemTop(item);
@@ -6152,16 +6172,19 @@ bool HistoryWidget::cornerButtonsHas(HistoryView::CornerButtonType type) {
 }
 
 void HistoryWidget::mousePressEvent(QMouseEvent *e) {
+	const auto isReadyToForward = readyToForward();
 	const auto hasSecondLayer = (_editMsgId
 		|| _replyToId
-		|| readyToForward()
+		|| isReadyToForward
 		|| _kbReplyTo);
 	_replyForwardPressed = hasSecondLayer && QRect(
 		0,
 		_field->y() - st::historySendPadding - st::historyReplyHeight,
 		st::historyReplySkip,
 		st::historyReplyHeight).contains(e->pos());
-	if (_replyForwardPressed && !_fieldBarCancel->isHidden()) {
+	if (_replyForwardPressed
+			&& !_fieldBarCancel->isHidden()
+			&& !isReadyToForward) {
 		updateField();
 	} else if (_inPhotoEdit && _photoEditMedia) {
 		EditCaptionBox::StartPhotoEdit(
@@ -6171,7 +6194,7 @@ void HistoryWidget::mousePressEvent(QMouseEvent *e) {
 			_field->getTextWithTags(),
 			crl::guard(_list, [=] { cancelEdit(); }));
 	} else if (_inReplyEditForward) {
-		if (readyToForward()) {
+		if (isReadyToForward) {
 			_forwardPanel->editOptions(controller()->uiShow());
 		} else {
 			controller()->showPeerHistory(
@@ -6212,6 +6235,16 @@ void HistoryWidget::keyPressEvent(QKeyEvent *e) {
 			return;
 		}
 		_scroll->keyPressEvent(e);
+	} else if (e->key() == Qt::Key_Up
+		&& commonModifiers == Qt::ControlModifier) {
+		if (!replyToPreviousMessage()) {
+			e->ignore();
+		}
+	} else if (e->key() == Qt::Key_Down
+		&& commonModifiers == Qt::ControlModifier) {
+		if (!replyToNextMessage()) {
+			e->ignore();
+		}
 	} else if (e->key() == Qt::Key_Return || e->key() == Qt::Key_Enter) {
 		if (!_botStart->isHidden()) {
 			sendBotStartCommand();
@@ -6268,20 +6301,28 @@ bool HistoryWidget::replyToPreviousMessage() {
 	if (!_history || _editMsgId || _history->isForum()) {
 		return false;
 	}
-	const auto fullId = FullMsgId(_history->peer->id, _replyToId);
+	const auto fullId = FullMsgId(
+		_history->peer->id,
+		_field->isVisible()
+			? _replyToId
+			: _highlighter.latestSingleHighlightedMsgId());
 	if (const auto item = session().data().message(fullId)) {
 		if (const auto view = item->mainView()) {
 			if (const auto previousView = view->previousDisplayedInBlocks()) {
 				const auto previous = previousView->data();
 				controller()->showMessage(previous);
-				replyToMessage(previous);
+				if (_field->isVisible()) {
+					replyToMessage(previous);
+				}
 				return true;
 			}
 		}
 	} else if (const auto previousView = _history->findLastDisplayed()) {
 		const auto previous = previousView->data();
 		controller()->showMessage(previous);
-		replyToMessage(previous);
+		if (_field->isVisible()) {
+			replyToMessage(previous);
+		}
 		return true;
 	}
 	return false;
@@ -6291,13 +6332,19 @@ bool HistoryWidget::replyToNextMessage() {
 	if (!_history || _editMsgId || _history->isForum()) {
 		return false;
 	}
-	const auto fullId = FullMsgId(_history->peer->id, _replyToId);
+	const auto fullId = FullMsgId(
+		_history->peer->id,
+		_field->isVisible()
+			? _replyToId
+			: _highlighter.latestSingleHighlightedMsgId());
 	if (const auto item = session().data().message(fullId)) {
 		if (const auto view = item->mainView()) {
 			if (const auto nextView = view->nextDisplayedInBlocks()) {
 				const auto next = nextView->data();
 				controller()->showMessage(next);
-				replyToMessage(next);
+				if (_field->isVisible()) {
+					replyToMessage(next);
+				}
 			} else {
 				_highlighter.clear();
 				cancelReply(false);
@@ -6560,12 +6607,21 @@ void HistoryWidget::checkPinnedBarState() {
 		std::move(pinnedRefreshed),
 		std::move(markupRefreshed)
 	) | rpl::map([=](Ui::MessageBarContent &&content, bool, HistoryItem*) {
-		if (!content.title.isEmpty() || !content.text.empty()) {
-			_list->setShownPinned(
-				session().data().message(
-					_pinnedTracker->currentMessageId().message));
-		} else {
-			_list->setShownPinned(nullptr);
+		const auto id = (!content.title.isEmpty() || !content.text.empty())
+			? _pinnedTracker->currentMessageId().message
+			: FullMsgId();
+		if (const auto list = _list.data()) {
+			// Sometimes we get here with non-empty content and id of
+			// message that is being deleted right now. We get here in
+			// the moment when _itemRemoved was already fired (so in
+			// the _list the _pinnedItem is already cleared) and the
+			// MessageUpdate::Flag::Destroyed being fired right now,
+			// so the message is still in Data::Session. So we need to
+			// call data().message() async, otherwise we get a nearly-
+			// destroyed message from it and save the pointer in _list.
+			crl::on_main(list, [=] {
+				list->setShownPinned(session().data().message(id));
+			});
 		}
 		return std::move(content);
 	}));
@@ -7495,7 +7551,7 @@ void HistoryWidget::handlePeerUpdate() {
 		if (!channel->mgInfo->botStatus) {
 			session().api().chatParticipants().requestBots(channel);
 		}
-		if (channel->mgInfo->admins.empty()) {
+		if (!channel->mgInfo->adminsLoaded) {
 			session().api().chatParticipants().requestAdmins(channel);
 		}
 	}
@@ -7579,7 +7635,7 @@ void HistoryWidget::escape() {
 		cancelInlineBot();
 	} else if (_editMsgId) {
 		if (_replyEditMsg
-			&& PrepareEditText(_replyEditMsg) != _field->getTextWithTags()) {
+			&& EditTextChanged(_replyEditMsg, _field->getTextWithTags())) {
 			controller()->show(Ui::MakeConfirmBox({
 				.text = tr::lng_cancel_edit_post_sure(),
 				.confirmed = crl::guard(this, [this](Fn<void()> &&close) {
@@ -7893,7 +7949,7 @@ void HistoryWidget::drawField(Painter &p, const QRect &rect) {
 					.now = now,
 					.pausedEmoji = paused || On(PowerSaving::kEmojiChat),
 					.pausedSpoiler = pausedSpoiler,
-					.elisionLines = 1,
+					.elisionOneLine = true,
 				});
 			} else {
 				p.setFont(st::msgDateFont);

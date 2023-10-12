@@ -375,9 +375,7 @@ MainWindow::MainWindow(not_null<Controller*> controller)
 
 	if (_outdated) {
 		_outdated->heightValue(
-		) | rpl::filter([=] {
-			return window()->windowHandle() != nullptr;
-		}) | rpl::start_with_next([=](int height) {
+		) | rpl::start_with_next([=](int height) {
 			if (!height) {
 				crl::on_main(this, [=] { _outdated.destroy(); });
 			}
@@ -418,8 +416,8 @@ bool MainWindow::hideNoQuit() {
 			return true;
 		}
 	}
-	if (Platform::IsMac() || Core::App().settings().closeToTaskbar()) {
-		if (Platform::IsMac()) {
+	if (Platform::RunInBackground() || Core::App().settings().closeToTaskbar()) {
+		if (Platform::RunInBackground()) {
 			closeWithoutDestroy();
 		} else {
 			setWindowState(window()->windowState() | Qt::WindowMinimized);

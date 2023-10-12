@@ -28,8 +28,20 @@ struct ReactionFlyAnimationArgs {
 	QImage flyIcon;
 	QRect flyFrom;
 	crl::time scaleOutDuration = 0;
+	float64 scaleOutTarget = 0.;
+	float64 miniCopyMultiplier = 1.;
+	bool effectOnly = false;
 
 	[[nodiscard]] ReactionFlyAnimationArgs translated(QPoint point) const;
+};
+
+struct ReactionFlyCenter {
+	std::unique_ptr<Text::CustomEmoji> custom;
+	std::unique_ptr<AnimatedIcon> icon;
+	float64 scale = 0.;
+	float64 centerSizeMultiplier = 0.;
+	int customSize = 0;
+	int size = 0;
 };
 
 class ReactionFlyAnimation final {
@@ -54,6 +66,8 @@ public:
 	[[nodiscard]] bool flying() const;
 	[[nodiscard]] float64 flyingProgress() const;
 	[[nodiscard]] bool finished() const;
+
+	[[nodiscard]] ReactionFlyCenter takeCenter();
 
 private:
 	struct Parabolic {
@@ -89,7 +103,7 @@ private:
 		QPoint center,
 		const QColor &colored,
 		crl::time now) const;
-	void generateMiniCopies(int size);
+	void generateMiniCopies(int size, float64 miniCopyMultiplier);
 
 	const not_null<::Data::Reactions*> _owner;
 	Fn<void()> _repaint;
@@ -97,6 +111,7 @@ private:
 	std::unique_ptr<Text::CustomEmoji> _custom;
 	std::unique_ptr<AnimatedIcon> _center;
 	std::unique_ptr<AnimatedIcon> _effect;
+	Animations::Simple _noEffectScaleAnimation;
 	std::vector<MiniCopy> _miniCopies;
 	Animations::Simple _fly;
 	Animations::Simple _minis;
@@ -104,6 +119,9 @@ private:
 	float64 _centerSizeMultiplier = 0.;
 	int _customSize = 0;
 	crl::time _scaleOutDuration = 0;
+	float64 _scaleOutTarget = 0.;
+	bool _noEffectScaleStarted = false;
+	bool _effectOnly = false;
 	bool _valid = false;
 
 	mutable Parabolic _cached;

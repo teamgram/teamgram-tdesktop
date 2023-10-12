@@ -114,6 +114,7 @@ private:
 	QOpenGLFunctions *_f = nullptr;
 	QSize _viewport;
 	float _factor = 1.;
+	int _ifactor = 1;
 	QVector2D _uniformViewport;
 
 	std::optional<QOpenGLBuffer> _contentBuffer;
@@ -149,7 +150,7 @@ private:
 	Ui::GL::Image _storiesSiblingParts[kStoriesSiblingPartsCount];
 
 	static constexpr auto kControlsCount = 6;
-	[[nodiscard]] static Control ControlMeta(Over control, bool stories);
+	[[nodiscard]] Control controlMeta(Over control) const;
 
 	// Last one is for the over circle image.
 	std::array<QRect, kControlsCount + 1> _controlsTextures;
@@ -158,6 +159,7 @@ private:
 	bool _shadowsForStories = false;
 	bool _blendingEnabled = false;
 
+	rpl::lifetime _storiesLifetime;
 	rpl::lifetime _lifetime;
 
 };

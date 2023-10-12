@@ -7,22 +7,20 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "media/stories/media_stories_controller.h"
 
-#include "base/timer.h"
 #include "base/power_save_blocker.h"
 #include "base/qt_signal_producer.h"
 #include "base/unixtime.h"
 #include "boxes/peers/prepare_short_info_box.h"
 #include "chat_helpers/compose/compose_show.h"
 #include "core/application.h"
+#include "core/core_settings.h"
 #include "core/update_checker.h"
-#include "data/stickers/data_custom_emoji.h"
 #include "data/data_changes.h"
 #include "data/data_document.h"
 #include "data/data_file_origin.h"
-#include "data/data_message_reactions.h"
+#include "data/data_peer.h"
 #include "data/data_session.h"
 #include "data/data_stories.h"
-#include "data/data_user.h"
 #include "history/view/reactions/history_view_reactions_strip.h"
 #include "lang/lang_keys.h"
 #include "main/main_session.h"
@@ -35,26 +33,20 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "media/stories/media_stories_recent_views.h"
 #include "media/stories/media_stories_reply.h"
 #include "media/stories/media_stories_share.h"
+#include "media/stories/media_stories_stealth.h"
 #include "media/stories/media_stories_view.h"
 #include "media/audio/media_audio.h"
 #include "ui/boxes/confirm_box.h"
 #include "ui/boxes/report_box.h"
-#include "ui/effects/emoji_fly_animation.h"
-#include "ui/effects/message_sending_animation_common.h"
-#include "ui/effects/reaction_fly_animation.h"
-#include "ui/layers/box_content.h"
 #include "ui/text/text_utilities.h"
 #include "ui/toast/toast.h"
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/labels.h"
 #include "ui/round_rect.h"
-#include "ui/rp_widget.h"
 #include "window/window_controller.h"
 #include "window/window_session_controller.h"
-#include "styles/style_chat.h"
-#include "styles/style_chat_helpers.h"
+#include "styles/style_chat_helpers.h" // defaultReportBox
 #include "styles/style_media_view.h"
-#include "styles/style_widgets.h"
 #include "styles/style_boxes.h" // UserpicButton
 
 #include <QtGui/QWindow>
@@ -70,7 +62,7 @@ constexpr auto kSiblingMultiplierMax = 0.72;
 constexpr auto kSiblingOutsidePart = 0.24;
 constexpr auto kSiblingUserpicSize = 0.3;
 constexpr auto kInnerHeightMultiplier = 1.6;
-constexpr auto kPreloadUsersCount = 3;
+constexpr auto kPreloadPeersCount = 3;
 constexpr auto kPreloadStoriesCount = 5;
 constexpr auto kPreloadNextMediaCount = 3;
 constexpr auto kPreloadPreviousMediaCount = 1;
@@ -113,6 +105,19 @@ struct SameDayRange {
 	return result;
 }
 
+[[nodiscard]] QPoint Rotated(QPoint point, QPoint origin, float64 angle) {
+	if (std::abs(angle) < 1.) {
+		return point;
+	}
+	const auto alpha = angle / 180. * M_PI;
+	const auto acos = cos(alpha);
+	const auto asin = sin(alpha);
+	point -= origin;
+	return origin + QPoint(
+		int(base::SafeRound(acos * point.x() - asin * point.y())),
+		int(base::SafeRound(asin * point.x() + acos * point.y())));
+}
+
 } // namespace
 
 class Controller::PhotoPlayback final {
@@ -135,10 +140,10 @@ private:
 
 class Controller::Unsupported final {
 public:
-	Unsupported(not_null<Controller*> controller, not_null<UserData*> user);
+	Unsupported(not_null<Controller*> controller, not_null<PeerData*> peer);
 
 private:
-	void setup(not_null<UserData*> user);
+	void setup(not_null<PeerData*> peer);
 
 	const not_null<Controller*> _controller;
 	std::unique_ptr<Ui::RpWidget> _bg;
@@ -201,13 +206,13 @@ void Controller::PhotoPlayback::callback() {
 
 Controller::Unsupported::Unsupported(
 	not_null<Controller*> controller,
-	not_null<UserData*> user)
+	not_null<PeerData*> peer)
 : _controller(controller)
 , _bgRound(st::storiesRadius, st::storiesComposeBg) {
-	setup(user);
+	setup(peer);
 }
 
-void Controller::Unsupported::setup(not_null<UserData*> user) {
+void Controller::Unsupported::setup(not_null<PeerData*> peer) {
 	const auto wrap = _controller->wrap();
 
 	_bg = std::make_unique<Ui::RpWidget>(wrap);
@@ -276,7 +281,7 @@ Controller::Controller(not_null<Delegate*> delegate)
 
 	rpl::combine(
 		_replyArea->activeValue(),
-		_reactions->expandedValue(),
+		_reactions->activeValue(),
 		_1 || _2
 	) | rpl::distinct_until_changed(
 	) | rpl::start_with_next([=](bool active) {
@@ -284,37 +289,16 @@ Controller::Controller(not_null<Delegate*> delegate)
 		updateContentFaded();
 	}, _lifetime);
 
-	_replyArea->focusedValue(
-	) | rpl::start_with_next([=](bool focused) {
-		_replyFocused = focused;
-		if (!_replyFocused) {
-			_reactions->hideIfCollapsed();
-		} else if (!_hasSendText) {
-			_reactions->show();
-		}
-	}, _lifetime);
-
-	_replyArea->hasSendTextValue(
-	) | rpl::start_with_next([=](bool has) {
-		_hasSendText = has;
-		if (_replyFocused) {
-			if (_hasSendText) {
-				_reactions->hide();
-			} else {
-				_reactions->show();
-			}
-		}
-	}, _lifetime);
+	_reactions->setReplyFieldState(
+		_replyArea->focusedValue(),
+		_replyArea->hasSendTextValue());
+	if (const auto like = _replyArea->likeAnimationTarget()) {
+		_reactions->attachToReactionButton(like);
+	}
 
 	_reactions->chosen(
-	) | rpl::start_with_next([=](HistoryView::Reactions::ChosenReaction id) {
-		startReactionAnimation(id.id, {
-			.type = Ui::MessageSendingAnimationFrom::Type::Emoji,
-			.globalStartGeometry = id.globalGeometry,
-			.frame = id.icon,
-		});
-		_replyArea->sendReaction(id.id);
-		unfocusReply();
+	) | rpl::start_with_next([=](Reactions::Chosen chosen) {
+		reactionChosen(chosen.mode, chosen.reaction);
 	}, _lifetime);
 
 	_delegate->storiesLayerShown(
@@ -525,9 +509,28 @@ void Controller::initLayout() {
 			.nameBoundingRect = nameBoundingRect(right, false),
 			.nameFontSize = nameFontSize,
 		};
-
+		if (!_areas.empty()) {
+			rebuildActiveAreas(layout);
+		}
 		return layout;
 	});
+}
+
+void Controller::rebuildActiveAreas(const Layout &layout) const {
+	const auto origin = layout.content.topLeft();
+	const auto scale = layout.content.size();
+	for (auto &area : _areas) {
+		const auto &general = area.original;
+		area.geometry = QRect(
+			int(base::SafeRound(general.x() * scale.width())),
+			int(base::SafeRound(general.y() * scale.height())),
+			int(base::SafeRound(general.width() * scale.width())),
+			int(base::SafeRound(general.height() * scale.height()))
+		).translated(origin);
+		if (const auto reaction = area.reaction.get()) {
+			reaction->setAreaGeometry(area.geometry);
+		}
+	}
 }
 
 Data::Story *Controller::story() const {
@@ -586,6 +589,19 @@ bool Controller::skipCaption() const {
 	return _captionFullView != nullptr;
 }
 
+void Controller::toggleLiked() {
+	_reactions->toggleLiked();
+}
+
+void Controller::reactionChosen(ReactionsMode mode, ChosenReaction chosen) {
+	if (mode == ReactionsMode::Message) {
+		_replyArea->sendReaction(chosen.id);
+	} else if (const auto peer = shownPeer()) {
+		peer->owner().stories().sendReaction(_shown, chosen.id);
+	}
+	unfocusReply();
+}
+
 void Controller::showFullCaption() {
 	if (_captionText.empty()) {
 		return;
@@ -622,11 +638,11 @@ auto Controller::cachedReactionIconFactory() const
 }
 
 void Controller::rebuildFromContext(
-		not_null<UserData*> user,
+		not_null<PeerData*> peer,
 		FullStoryId storyId) {
 	using namespace Data;
 
-	auto &stories = user->owner().stories();
+	auto &stories = peer->owner().stories();
 	auto list = std::optional<StoriesList>();
 	auto source = (const StoriesSource*)nullptr;
 	const auto peerId = storyId.peer;
@@ -638,41 +654,38 @@ void Controller::rebuildFromContext(
 		hideSiblings();
 	}, [&](StoriesContextSaved) {
 		if (stories.savedCountKnown(peerId)) {
-			if (const auto saved = stories.saved(peerId)) {
-				const auto &ids = saved->list;
-				const auto i = ids.find(id);
-				if (i != end(ids)) {
-					list = StoriesList{
-						.user = user,
-						.ids = *saved,
-						.total = stories.savedCount(peerId),
-					};
-					_index = int(i - begin(ids));
-					if (ids.size() < list->total
-						&& (end(ids) - i) < kPreloadStoriesCount) {
-						stories.savedLoadMore(peerId);
-					}
+			const auto &saved = stories.saved(peerId);
+			const auto &ids = saved.list;
+			const auto i = ids.find(id);
+			if (i != end(ids)) {
+				list = StoriesList{
+					.peer = peer,
+					.ids = saved,
+					.total = stories.savedCount(peerId),
+				};
+				_index = int(i - begin(ids));
+				if (ids.size() < list->total
+					&& (end(ids) - i) < kPreloadStoriesCount) {
+					stories.savedLoadMore(peerId);
 				}
 			}
 		}
 		hideSiblings();
 	}, [&](StoriesContextArchive) {
-		Expects(user->isSelf());
-
-		if (stories.archiveCountKnown()) {
-			const auto &archive = stories.archive();
+		if (stories.archiveCountKnown(peerId)) {
+			const auto &archive = stories.archive(peerId);
 			const auto &ids = archive.list;
 			const auto i = ids.find(id);
 			if (i != end(ids)) {
 				list = StoriesList{
-					.user = user,
+					.peer = peer,
 					.ids = archive,
-					.total = stories.archiveCount(),
+					.total = stories.archiveCount(peerId),
 				};
 				_index = int(i - begin(ids));
 				if (ids.size() < list->total
 					&& (end(ids) - i) < kPreloadStoriesCount) {
-					stories.archiveLoadMore();
+					stories.archiveLoadMore(peerId);
 				}
 			}
 		}
@@ -690,8 +703,8 @@ void Controller::rebuildFromContext(
 			}
 			rebuildCachedSourcesList(sources, (i - begin(sources)));
 			_cachedSourcesList[_cachedSourceIndex].shownId = storyId.story;
-			showSiblings(&user->session());
-			if (int(sources.end() - i) < kPreloadUsersCount) {
+			showSiblings(&peer->session());
+			if (int(sources.end() - i) < kPreloadPeersCount) {
 				stories.loadMore(list);
 			}
 		}
@@ -703,7 +716,7 @@ void Controller::rebuildFromContext(
 		if (_list != list) {
 			_list = std::move(list);
 		}
-		if (const auto maybe = user->owner().stories().lookup(storyId)) {
+		if (const auto maybe = peer->owner().stories().lookup(storyId)) {
 			const auto now = *maybe;
 			const auto range = ComputeSameDayRange(now, _list->ids, _index);
 			_sliderCount = range.till - range.from + 1;
@@ -721,7 +734,7 @@ void Controller::rebuildFromContext(
 		if (!source) {
 			_source = std::nullopt;
 			_list = StoriesList{
-				.user = user,
+				.peer = peer,
 				.ids = { { id } },
 				.total = 1,
 			};
@@ -745,17 +758,17 @@ void Controller::preloadNext() {
 
 	auto ids = std::vector<FullStoryId>();
 	ids.reserve(kPreloadPreviousMediaCount + kPreloadNextMediaCount);
-	const auto user = shownUser();
+	const auto peer = shownPeer();
 	const auto count = shownCount();
 	const auto till = std::min(_index + kPreloadNextMediaCount, count);
 	for (auto i = _index + 1; i != till; ++i) {
-		ids.push_back({ .peer = user->id, .story = shownId(i) });
+		ids.push_back({ .peer = peer->id, .story = shownId(i) });
 	}
 	const auto from = std::max(_index - kPreloadPreviousMediaCount, 0);
 	for (auto i = _index; i != from;) {
-		ids.push_back({ .peer = user->id, .story = shownId(--i) });
+		ids.push_back({ .peer = peer->id, .story = shownId(--i) });
 	}
-	user->owner().stories().setPreloadingInViewer(std::move(ids));
+	peer->owner().stories().setPreloadingInViewer(std::move(ids));
 }
 
 void Controller::checkMoveByDelta() {
@@ -770,18 +783,18 @@ void Controller::show(
 		Data::StoriesContext context) {
 	auto &stories = story->owner().stories();
 	const auto storyId = story->fullId();
-	const auto user = story->peer()->asUser();
+	const auto peer = story->peer();
 	_context = context;
 	_waitingForId = {};
 	_waitingForDelta = 0;
 
-	rebuildFromContext(user, storyId);
+	rebuildFromContext(peer, storyId);
 	_contextLifetime.destroy();
 	const auto subscribeToSource = [&] {
 		stories.sourceChanged() | rpl::filter(
 			rpl::mappers::_1 == storyId.peer
 		) | rpl::start_with_next([=] {
-			rebuildFromContext(user, storyId);
+			rebuildFromContext(peer, storyId);
 		}, _contextLifetime);
 	};
 	v::match(_context.data, [&](Data::StoriesContextSingle) {
@@ -791,13 +804,13 @@ void Controller::show(
 		stories.savedChanged() | rpl::filter(
 			rpl::mappers::_1 == storyId.peer
 		) | rpl::start_with_next([=] {
-			rebuildFromContext(user, storyId);
+			rebuildFromContext(peer, storyId);
 			checkMoveByDelta();
 		}, _contextLifetime);
 	}, [&](Data::StoriesContextArchive) {
 		stories.archiveChanged(
 		) | rpl::start_with_next([=] {
-			rebuildFromContext(user, storyId);
+			rebuildFromContext(peer, storyId);
 			checkMoveByDelta();
 		}, _contextLifetime);
 	}, [&](Data::StorySourcesList) {
@@ -818,7 +831,7 @@ void Controller::show(
 	if (!unsupported) {
 		_unsupported = nullptr;
 	} else {
-		_unsupported = std::make_unique<Unsupported>(this, user);
+		_unsupported = std::make_unique<Unsupported>(this, peer);
 		_header->raise();
 		_slider->raise();
 	}
@@ -829,7 +842,7 @@ void Controller::show(
 	_contentFadeAnimation.stop();
 	const auto document = story->document();
 	_header->show({
-		.user = user,
+		.peer = peer,
 		.date = story->date(),
 		.fullIndex = _sliderCount ? _index : 0,
 		.fullCount = _sliderCount ? shownCount() : 0,
@@ -842,33 +855,45 @@ void Controller::show(
 	if (!changeShown(story)) {
 		return;
 	}
-	_viewed = false;
-	invalidate_weak_ptrs(&_viewsLoadGuard);
-	_reactions->hide();
-	if (_replyFocused) {
-		unfocusReply();
-	}
 
 	_replyArea->show({
-		.user = unsupported ? nullptr : user,
+		.peer = unsupported ? nullptr : peer.get(),
 		.id = story->id(),
-	});
+	}, _reactions->likedValue());
+
+	const auto wasLikeButton = QPointer(_recentViews->likeButton());
 	_recentViews->show({
 		.list = story->recentViewers(),
+		.reactions = story->reactions(),
 		.total = story->views(),
-		.valid = user->isSelf(),
-	});
+		.type = RecentViewsTypeFor(peer),
+	}, _reactions->likedValue());
+	if (const auto nowLikeButton = _recentViews->likeButton()) {
+		if (wasLikeButton != nowLikeButton) {
+			_reactions->attachToReactionButton(nowLikeButton);
+		}
+	}
+
+	if (peer->isSelf() || peer->isChannel() || peer->isServiceUser()) {
+		_reactions->setReactionIconWidget(_recentViews->likeIconWidget());
+	} else if (const auto like = _replyArea->likeAnimationTarget()) {
+		_reactions->setReactionIconWidget(like);
+	}
+	_reactions->showLikeFrom(story);
 
 	stories.loadAround(storyId, context);
 
 	updatePlayingAllowed();
-	user->updateFull();
+	peer->updateFull();
 }
 
 bool Controller::changeShown(Data::Story *story) {
 	const auto id = story ? story->fullId() : FullStoryId();
 	const auto session = story ? &story->session() : nullptr;
 	const auto sessionChanged = (_session != session);
+
+	updateAreas(story);
+
 	if (_shown == id && !sessionChanged) {
 		return false;
 	}
@@ -891,6 +916,15 @@ bool Controller::changeShown(Data::Story *story) {
 			story,
 			Data::Stories::Polling::Viewer);
 	}
+
+	_viewed = false;
+	invalidate_weak_ptrs(&_viewsLoadGuard);
+	_reactions->hide();
+	_reactions->setReactionIconWidget(nullptr);
+	if (_replyArea->focused()) {
+		unfocusReply();
+	}
+
 	return true;
 }
 
@@ -915,7 +949,8 @@ void Controller::subscribeToSession() {
 	}, _sessionLifetime);
 	_session->changes().storyUpdates(
 		Data::StoryUpdate::Flag::Edited
-		| Data::StoryUpdate::Flag::ViewsAdded
+		| Data::StoryUpdate::Flag::ViewsChanged
+		| Data::StoryUpdate::Flag::Reaction
 	) | rpl::filter([=](const Data::StoryUpdate &update) {
 		return (update.story == this->story());
 	}) | rpl::start_with_next([=](const Data::StoryUpdate &update) {
@@ -925,14 +960,51 @@ void Controller::subscribeToSession() {
 		} else {
 			_recentViews->show({
 				.list = update.story->recentViewers(),
+				.reactions = update.story->reactions(),
 				.total = update.story->views(),
-				.valid = update.story->peer()->isSelf(),
+				.type = RecentViewsTypeFor(update.story->peer()),
 			});
+			updateAreas(update.story);
 		}
 	}, _sessionLifetime);
 	_sessionLifetime.add([=] {
 		_session->data().stories().setPreloadingInViewer({});
 	});
+}
+
+void Controller::updateAreas(Data::Story *story) {
+	const auto &locations = story
+		? story->locations()
+		: std::vector<Data::StoryLocation>();
+	const auto &suggestedReactions = story
+		? story->suggestedReactions()
+		: std::vector<Data::SuggestedReaction>();
+	if (_locations != locations) {
+		_locations = locations;
+		_areas.clear();
+	}
+	const auto reactionsCount = int(suggestedReactions.size());
+	if (_suggestedReactions.size() == reactionsCount && !_areas.empty()) {
+		for (auto i = 0; i != reactionsCount; ++i) {
+			const auto count = suggestedReactions[i].count;
+			if (_suggestedReactions[i].count != count) {
+				_suggestedReactions[i].count = count;
+				_areas[i + _locations.size()].reaction->updateCount(count);
+			}
+			if (_suggestedReactions[i] != suggestedReactions[i]) {
+				_suggestedReactions = suggestedReactions;
+				_areas.clear();
+				break;
+			}
+		}
+	} else if (_suggestedReactions != suggestedReactions) {
+		_suggestedReactions = suggestedReactions;
+		_areas.clear();
+	}
+	if (_areas.empty() || _suggestedReactions.empty()) {
+		return;
+	}
+
 }
 
 PauseState Controller::pauseState() const {
@@ -1031,6 +1103,7 @@ void Controller::ready() {
 	}
 	_started = true;
 	updatePlayingAllowed();
+	_reactions->ready();
 }
 
 void Controller::updateVideoPlayback(const Player::TrackState &state) {
@@ -1050,6 +1123,62 @@ void Controller::updatePlayback(const Player::TrackState &state) {
 			_delegate->storiesClose();
 		}
 	}
+}
+
+ClickHandlerPtr Controller::lookupAreaHandler(QPoint point) const {
+	const auto &layout = _layout.current();
+	if ((_locations.empty() && _suggestedReactions.empty()) || !layout) {
+		return nullptr;
+	} else if (_areas.empty()) {
+		_areas.reserve(_locations.size() + _suggestedReactions.size());
+		for (const auto &location : _locations) {
+			_areas.push_back({
+				.original = location.area.geometry,
+				.rotation = location.area.rotation,
+				.handler = std::make_shared<LocationClickHandler>(
+					location.point),
+			});
+		}
+		for (const auto &suggestedReaction : _suggestedReactions) {
+			const auto id = suggestedReaction.reaction;
+			auto widget = _reactions->makeSuggestedReactionWidget(
+				suggestedReaction);
+			const auto raw = widget.get();
+			_areas.push_back({
+				.original = suggestedReaction.area.geometry,
+				.rotation = suggestedReaction.area.rotation,
+				.handler = std::make_shared<LambdaClickHandler>([=] {
+					raw->playEffect();
+					if (const auto now = story()) {
+						if (now->sentReactionId() != id) {
+							now->owner().stories().sendReaction(
+								now->fullId(),
+								id);
+						}
+					}
+				}),
+				.reaction = std::move(widget),
+			});
+		}
+		rebuildActiveAreas(*layout);
+	}
+
+	const auto circleContains = [&](QRect circle) {
+		const auto radius = std::min(circle.width(), circle.height()) / 2;
+		const auto delta = circle.center() - point;
+		return QPoint::dotProduct(delta, delta) < (radius * radius);
+	};
+	for (const auto &area : _areas) {
+		const auto center = area.geometry.center();
+		const auto angle = -area.rotation;
+		const auto contains = area.reaction
+			? circleContains(area.geometry)
+			: area.geometry.contains(Rotated(point, center, angle));
+		if (contains) {
+			return area.handler;
+		}
+	}
+	return nullptr;
 }
 
 void Controller::maybeMarkAsRead(const Player::TrackState &state) {
@@ -1073,7 +1202,7 @@ void Controller::markAsRead() {
 		return;
 	}
 	_viewed = true;
-	shownUser()->owner().stories().markAsRead(_shown, _started);
+	shownPeer()->owner().stories().markAsRead(_shown, _started);
 }
 
 bool Controller::subjumpAvailable(int delta) const {
@@ -1113,12 +1242,12 @@ void Controller::subjumpTo(int index) {
 	Expects(shown());
 	Expects(index >= 0 && index < shownCount());
 
-	const auto user = shownUser();
+	const auto peer = shownPeer();
 	const auto id = FullStoryId{
-		.peer = user->id,
+		.peer = peer->id,
 		.story = shownId(index),
 	};
-	auto &stories = user->owner().stories();
+	auto &stories = peer->owner().stories();
 	if (!id.story) {
 		const auto delta = index - _index;
 		if (_waitingForDelta != delta) {
@@ -1127,7 +1256,7 @@ void Controller::subjumpTo(int index) {
 			loadMoreToList();
 		}
 	} else if (stories.lookup(id)) {
-		_delegate->storiesJumpTo(&user->session(), id, _context);
+		_delegate->storiesJumpTo(&peer->session(), id, _context);
 	} else if (_waitingForId != id) {
 		_waitingForId = id;
 		_waitingForDelta = 0;
@@ -1139,8 +1268,8 @@ void Controller::checkWaitingFor() {
 	Expects(_waitingForId.valid());
 	Expects(shown());
 
-	const auto user = shownUser();
-	auto &stories = user->owner().stories();
+	const auto peer = shownPeer();
+	auto &stories = peer->owner().stories();
 	const auto maybe = stories.lookup(_waitingForId);
 	if (!maybe) {
 		if (maybe.error() == Data::NoStory::Deleted) {
@@ -1149,7 +1278,7 @@ void Controller::checkWaitingFor() {
 		return;
 	}
 	_delegate->storiesJumpTo(
-		&user->session(),
+		&peer->session(),
 		base::take(_waitingForId),
 		_context);
 }
@@ -1195,7 +1324,7 @@ void Controller::contentPressed(bool pressed) {
 		_captionFullView->close();
 	}
 	if (pressed) {
-		_reactions->collapse();
+		_reactions->outsidePressed();
 	}
 }
 
@@ -1226,12 +1355,21 @@ SiblingView Controller::sibling(SiblingType type) const {
 	return {};
 }
 
-ViewsSlice Controller::views(PeerId offset) {
+const Data::StoryViews &Controller::views(int limit, bool initial) {
 	invalidate_weak_ptrs(&_viewsLoadGuard);
-	if (!offset) {
+	if (initial) {
 		refreshViewsFromData();
-	} else if (!sliceViewsTo(offset)) {
-		return { .left = _viewsSlice.left };
+	}
+	if (_viewsSlice.total > _viewsSlice.list.size()
+		&& _viewsSlice.list.size() < limit) {
+		const auto done = viewsGotMoreCallback();
+		const auto peer = shownPeer();
+		auto &stories = peer->owner().stories();
+		stories.loadViewsSlice(
+			peer,
+			_shown.story,
+			_viewsSlice.nextOffset,
+			done);
 	}
 	return _viewsSlice;
 }
@@ -1240,27 +1378,25 @@ rpl::producer<> Controller::moreViewsLoaded() const {
 	return _moreViewsLoaded.events();
 }
 
-Fn<void(std::vector<Data::StoryView>)> Controller::viewsGotMoreCallback() {
-	return crl::guard(&_viewsLoadGuard, [=](
-			const std::vector<Data::StoryView> &result) {
+Fn<void(Data::StoryViews)> Controller::viewsGotMoreCallback() {
+	return crl::guard(&_viewsLoadGuard, [=](Data::StoryViews result) {
 		if (_viewsSlice.list.empty()) {
-			const auto user = shownUser();
-			auto &stories = user->owner().stories();
+			const auto peer = shownPeer();
+			auto &stories = peer->owner().stories();
 			if (const auto maybeStory = stories.lookup(_shown)) {
-				_viewsSlice = {
-					.list = result,
-					.left = (*maybeStory)->views() - int(result.size()),
-				};
+				_viewsSlice = (*maybeStory)->viewsList();
 			} else {
 				_viewsSlice = {};
 			}
 		} else {
 			_viewsSlice.list.insert(
 				end(_viewsSlice.list),
-				begin(result),
-				end(result));
-			_viewsSlice.left
-				= std::max(_viewsSlice.left - int(result.size()), 0);
+				begin(result.list),
+				end(result.list));
+			_viewsSlice.total = result.nextOffset.isEmpty()
+				? int(_viewsSlice.list.size())
+				: std::max(result.total, int(_viewsSlice.list.size()));
+			_viewsSlice.nextOffset = result.nextOffset;
 		}
 		_moreViewsLoaded.fire({});
 	});
@@ -1270,11 +1406,11 @@ bool Controller::shown() const {
 	return _source || _list;
 }
 
-UserData *Controller::shownUser() const {
+PeerData *Controller::shownPeer() const {
 	return _source
-		? _source->user.get()
+		? _source->peer.get()
 		: _list
-		? _list->user.get()
+		? _list->peer.get()
 		: nullptr;
 }
 
@@ -1297,15 +1433,13 @@ void Controller::loadMoreToList() {
 
 	using namespace Data;
 
-	const auto user = shownUser();
+	const auto peer = shownPeer();
 	const auto peerId = _shown.peer;
-	auto &stories = user->owner().stories();
+	auto &stories = peer->owner().stories();
 	v::match(_context.data, [&](StoriesContextSaved) {
 		stories.savedLoadMore(peerId);
 	}, [&](StoriesContextArchive) {
-		Expects(user->isSelf());
-
-		stories.archiveLoadMore();
+		stories.archiveLoadMore(peerId);
 	}, [](const auto &) {
 	});
 }
@@ -1403,54 +1537,14 @@ void Controller::rebuildCachedSourcesList(
 void Controller::refreshViewsFromData() {
 	Expects(shown());
 
-	const auto user = shownUser();
-	auto &stories = user->owner().stories();
+	const auto peer = shownPeer();
+	auto &stories = peer->owner().stories();
 	const auto maybeStory = stories.lookup(_shown);
-	if (!maybeStory || !user->isSelf()) {
+	if (!maybeStory || !peer->isSelf()) {
 		_viewsSlice = {};
-		return;
+	} else {
+		_viewsSlice = (*maybeStory)->viewsList();
 	}
-	const auto story = *maybeStory;
-	const auto &list = story->viewsList();
-	const auto total = story->views();
-	_viewsSlice.list = list
-		| ranges::views::take(Data::Stories::kViewsPerPage)
-		| ranges::to_vector;
-	_viewsSlice.left = total - int(_viewsSlice.list.size());
-	if (_viewsSlice.list.empty() && _viewsSlice.left > 0) {
-		const auto done = viewsGotMoreCallback();
-		stories.loadViewsSlice(_shown.story, std::nullopt, done);
-	}
-}
-
-bool Controller::sliceViewsTo(PeerId offset) {
-	Expects(shown());
-
-	const auto user = shownUser();
-	auto &stories = user->owner().stories();
-	const auto maybeStory = stories.lookup(_shown);
-	if (!maybeStory || !user->isSelf()) {
-		_viewsSlice = {};
-		return true;
-	}
-	const auto story = *maybeStory;
-	const auto &list = story->viewsList();
-	const auto proj = [&](const Data::StoryView &single) {
-		return single.peer->id;
-	};
-	const auto i = ranges::find(list, _viewsSlice.list.back());
-	const auto add = (i != end(list)) ? int(end(list) - i - 1) : 0;
-	const auto j = ranges::find(_viewsSlice.list, offset, proj);
-	Assert(j != end(_viewsSlice.list));
-	if (!add && (j + 1) == end(_viewsSlice.list)) {
-		const auto done = viewsGotMoreCallback();
-		stories.loadViewsSlice(_shown.story, _viewsSlice.list.back(), done);
-		return false;
-	}
-	_viewsSlice.list.erase(begin(_viewsSlice.list), j + 1);
-	_viewsSlice.list.insert(end(_viewsSlice.list), i + 1, end(list));
-	_viewsSlice.left -= add;
-	return true;
 }
 
 void Controller::unfocusReply() {
@@ -1504,7 +1598,8 @@ void Controller::togglePinnedRequested(bool pinned) {
 		moveFromShown();
 	}
 	story->owner().stories().togglePinnedList({ story->fullId() }, pinned);
-	uiShow()->showToast(PrepareTogglePinnedToast(1, pinned));
+	const auto channel = story->peer()->isChannel();
+	uiShow()->showToast(PrepareTogglePinnedToast(channel, 1, pinned));
 }
 
 void Controller::moveFromShown() {
@@ -1522,6 +1617,24 @@ void Controller::tryProcessKeyInput(not_null<QKeyEvent*> e) {
 	_replyArea->tryProcessKeyInput(e);
 }
 
+bool Controller::allowStealthMode() const {
+	const auto story = this->story();
+	return story
+		&& !story->peer()->isSelf()
+		&& story->peer()->session().premiumPossible();
+}
+
+void Controller::setupStealthMode() {
+	SetupStealthMode(uiShow());
+}
+
+auto Controller::attachReactionsToMenu(
+	not_null<Ui::PopupMenu*> menu,
+	QPoint desiredPosition)
+-> AttachStripResult {
+	return _reactions->attachToMenu(menu, desiredPosition);
+}
+
 rpl::lifetime &Controller::lifetime() {
 	return _lifetime;
 }
@@ -1537,57 +1650,41 @@ void Controller::updatePowerSaveBlocker(const Player::TrackState &state) {
 		[=] { return _wrap->window()->windowHandle(); });
 }
 
-void Controller::startReactionAnimation(
-		Data::ReactionId id,
-		Ui::MessageSendingAnimationFrom from) {
-	Expects(shown());
-
-	auto args = Ui::ReactionFlyAnimationArgs{
-		.id = id,
-		.flyIcon = from.frame,
-		.flyFrom = _wrap->mapFromGlobal(from.globalStartGeometry),
-		.scaleOutDuration = st::fadeWrapDuration * 2,
-	};
-	_reactionAnimation = std::make_unique<Ui::EmojiFlyAnimation>(
-		_wrap,
-		&shownUser()->owner().reactions(),
-		std::move(args),
-		[=] { _reactionAnimation->repaint(); },
-		Data::CustomEmojiSizeTag::Isolated);
-	const auto layer = _reactionAnimation->layer();
-	_wrap->paintRequest() | rpl::start_with_next([=] {
-		if (!_reactionAnimation->paintBadgeFrame(_wrap.get())) {
-			InvokeQueued(layer, [=] {
-				_reactionAnimation = nullptr;
-				_wrap->update();
-			});
-		}
-	}, layer->lifetime());
-}
-
-Ui::Toast::Config PrepareTogglePinnedToast(int count, bool pinned) {
+Ui::Toast::Config PrepareTogglePinnedToast(
+		bool channel,
+		int count,
+		bool pinned) {
 	return {
 		.text = (pinned
 			? (count == 1
-				? tr::lng_stories_save_done(
-					tr::now,
-					Ui::Text::Bold)
-				: tr::lng_stories_save_done_many(
-					tr::now,
-					lt_count,
-					count,
-					Ui::Text::Bold)).append(
-						'\n').append(
-							tr::lng_stories_save_done_about(tr::now))
+				? (channel
+					? tr::lng_stories_channel_save_done
+					: tr::lng_stories_save_done)(
+						tr::now,
+						Ui::Text::Bold)
+				: (channel
+					? tr::lng_stories_channel_save_done_many
+					: tr::lng_stories_save_done_many)(
+						tr::now,
+						lt_count,
+						count,
+						Ui::Text::Bold)).append(
+							'\n').append((channel
+								? tr::lng_stories_channel_save_done_about
+								: tr::lng_stories_save_done_about)(tr::now))
 			: (count == 1
-				? tr::lng_stories_archive_done(
-					tr::now,
-					Ui::Text::WithEntities)
-				: tr::lng_stories_archive_done_many(
-					tr::now,
-					lt_count,
-					count,
-					Ui::Text::WithEntities))),
+				? (channel
+					? tr::lng_stories_channel_archive_done
+					: tr::lng_stories_archive_done)(
+						tr::now,
+						Ui::Text::WithEntities)
+				: (channel
+					? tr::lng_stories_channel_archive_done_many
+					: tr::lng_stories_archive_done_many)(
+						tr::now,
+						lt_count,
+						count,
+						Ui::Text::WithEntities))),
 		.st = &st::storiesActionToast,
 		.duration = (pinned
 			? Data::Stories::kPinnedToastDuration

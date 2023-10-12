@@ -82,6 +82,17 @@ Panel::Panel(not_null<PanelDelegate*> delegate)
 	) | rpl::start_with_next([=] {
 		_delegate->panelCloseSure();
 	}, _widget->lifetime());
+
+	style::PaletteChanged(
+	) | rpl::filter([=] {
+		return !_themeUpdateScheduled;
+	}) | rpl::start_with_next([=] {
+		_themeUpdateScheduled = true;
+		crl::on_main(_widget.get(), [=] {
+			_themeUpdateScheduled = false;
+			updateThemeParams(_delegate->panelWebviewThemeParams());
+		});
+	}, lifetime());
 }
 
 Panel::~Panel() {
@@ -483,11 +494,13 @@ bool Panel::showWebview(
 		const QString &url,
 		bool allowBack,
 		rpl::producer<QString> bottomText) {
-	if (!_webview && !createWebview()) {
+	const auto params = _delegate->panelWebviewThemeParams();
+	if (!_webview && !createWebview(params)) {
 		return false;
 	}
 	showWebviewProgress();
 	_widget->hideLayer(anim::type::instant);
+	updateThemeParams(params);
 	_webview->window.navigate(url);
 	_widget->setBackAllowed(allowBack);
 	if (bottomText) {
@@ -511,7 +524,7 @@ bool Panel::showWebview(
 	return true;
 }
 
-bool Panel::createWebview() {
+bool Panel::createWebview(const Webview::ThemeParams &params) {
 	auto outer = base::make_unique_q<RpWidget>(_widget.get());
 	const auto container = outer.get();
 	_widget->showInner(std::move(outer));
@@ -532,8 +545,10 @@ bool Panel::createWebview() {
 	_webview = std::make_unique<WebviewWithLifetime>(
 		container,
 		Webview::WindowConfig{
+			.opaqueBg = params.opaqueBg,
 			.userDataPath = _delegate->panelWebviewDataPath(),
 		});
+
 	const auto raw = &_webview->window;
 	QObject::connect(container, &QObject::destroyed, [=] {
 		if (_webview && &_webview->window == raw) {
@@ -689,15 +704,18 @@ void Panel::showWarning(const QString &bot, const QString &provider) {
 
 void Panel::requestTermsAcceptance(
 		const QString &username,
-		const QString &url) {
+		const QString &url,
+		bool recurring) {
 	showBox(Box([=](not_null<GenericBox*> box) {
 		box->setTitle(tr::lng_payments_terms_title());
 		box->addRow(object_ptr<Ui::FlatLabel>(
 			box.get(),
-			tr::lng_payments_terms_text(
-				lt_bot,
-				rpl::single(Ui::Text::Bold('@' + username)),
-				Ui::Text::WithEntities),
+			(recurring
+				? tr::lng_payments_terms_text
+				: tr::lng_payments_terms_text_once)(
+					lt_bot,
+					rpl::single(Ui::Text::Bold('@' + username)),
+					Ui::Text::WithEntities),
 			st::boxLabel));
 		const auto update = std::make_shared<Fn<void()>>();
 		auto checkView = std::make_unique<Ui::CheckView>(
@@ -735,41 +753,9 @@ void Panel::requestTermsAcceptance(
 
 		(*update) = [=] { row->update(); };
 
-		struct State {
-			bool error = false;
-			Ui::Animations::Simple errorAnimation;
-		};
-		const auto state = box->lifetime().make_state<State>();
-		const auto showError = [=] {
-			const auto callback = [=] {
-				const auto error = state->errorAnimation.value(
-					state->error ? 1. : 0.);
-				if (error == 0.) {
-					check->setUntoggledOverride(std::nullopt);
-				} else {
-					const auto color = anim::color(
-						st::defaultCheck.untoggledFg,
-						st::boxTextFgError,
-						error);
-					check->setUntoggledOverride(color);
-				}
-			};
-			state->error = true;
-			state->errorAnimation.stop();
-			state->errorAnimation.start(
-				callback,
-				0.,
-				1.,
-				st::defaultCheck.duration);
-		};
-
-		row->checkedChanges(
-		) | rpl::filter([=](bool checked) {
-			return checked;
-		}) | rpl::start_with_next([=] {
-			state->error = false;
-			check->setUntoggledOverride(std::nullopt);
-		}, row->lifetime());
+		const auto showError = Ui::CheckView::PrepareNonToggledError(
+			check,
+			box->lifetime());
 
 		box->addButton(tr::lng_payments_terms_accept(), [=] {
 			if (check->checked()) {
@@ -902,17 +888,13 @@ void Panel::showWebviewError(
 	rich.append("\n\n");
 	switch (information.error) {
 	case Error::NoWebview2: {
-		const auto command = QString(QChar(TextCommand));
-		const auto text = tr::lng_payments_webview_install_edge(
+		rich.append(tr::lng_payments_webview_install_edge(
 			tr::now,
 			lt_link,
-			command);
-		const auto parts = text.split(command);
-		rich.append(parts.value(0))
-			.append(Text::Link(
+			Text::Link(
 				"Microsoft Edge WebView2 Runtime",
-				"https://go.microsoft.com/fwlink/p/?LinkId=2124703"))
-			.append(parts.value(1));
+				"https://go.microsoft.com/fwlink/p/?LinkId=2124703"),
+			Ui::Text::WithEntities));
 	} break;
 	case Error::NoWebKitGTK:
 		rich.append(tr::lng_payments_webview_install_webkit(tr::now));
@@ -932,6 +914,7 @@ void Panel::updateThemeParams(const Webview::ThemeParams &params) {
 		return;
 	}
 	_webview->window.updateTheme(
+		params.opaqueBg,
 		params.scrollBg,
 		params.scrollBgOver,
 		params.scrollBarBg,

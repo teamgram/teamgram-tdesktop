@@ -322,6 +322,8 @@ public:
 	[[nodiscard]] bool repliesAreComments() const;
 	[[nodiscard]] bool externalReply() const;
 	[[nodiscard]] bool hasExtendedMediaPreview() const;
+	[[nodiscard]] bool inHighlightProcess() const;
+	void highlightProcessDone();
 
 	void setCommentsInboxReadTill(MsgId readTillId);
 	void setCommentsMaxId(MsgId maxId);
@@ -359,6 +361,7 @@ public:
 	[[nodiscard]] Storage::SharedMediaTypesMask sharedMediaTypes() const;
 
 	void indexAsNewItem();
+	void addToSharedMediaIndex();
 	void removeFromSharedMediaIndex();
 
 	struct NotificationTextOptions {
@@ -536,7 +539,7 @@ private:
 	[[nodiscard]] bool generateLocalEntitiesByReply() const;
 	[[nodiscard]] TextWithEntities withLocalEntities(
 		const TextWithEntities &textWithEntities) const;
-	void setTextValue(TextWithEntities text);
+	void setTextValue(TextWithEntities text, bool force = false);
 	[[nodiscard]] bool isTooOldForEdit(TimeId now) const;
 	[[nodiscard]] bool isLegacyMessage() const {
 		return _flags & MessageFlag::Legacy;
@@ -574,7 +577,7 @@ private:
 	void translationToggle(
 		not_null<HistoryMessageTranslation*> translation,
 		bool used);
-	void setSelfDestruct(HistorySelfDestructType type, int ttlSeconds);
+	void setSelfDestruct(HistorySelfDestructType type, MTPint mtpTTLvalue);
 
 	TextWithEntities fromLinkText() const;
 	ClickHandlerPtr fromLink() const;

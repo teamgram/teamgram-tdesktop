@@ -60,7 +60,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "media/audio/media_audio.h"
 #include "ui/text/text_options.h"
 #include "ui/ui_utility.h"
-#include "ui/widgets/input_fields.h"
+#include "ui/widgets/fields/input_field.h"
 #include "ui/widgets/dropdown_menu.h"
 #include "ui/text/format_values.h"
 #include "ui/controls/emoji_button.h"
@@ -129,7 +129,7 @@ public:
 
 	[[nodiscard]] Data::PreviewState state() const;
 	void setState(Data::PreviewState value);
-	void refreshState(Data::PreviewState value);
+	void refreshState(Data::PreviewState value, bool disable);
 
 	[[nodiscard]] rpl::producer<> paintRequests() const;
 	[[nodiscard]] rpl::producer<QString> titleChanges() const;
@@ -219,12 +219,16 @@ void WebpageProcessor::setState(Data::PreviewState value) {
 	_previewState = value;
 }
 
-void WebpageProcessor::refreshState(Data::PreviewState value) {
+void WebpageProcessor::refreshState(
+		Data::PreviewState value,
+		bool disable) {
 	// Save links from _field to _parsedLinks without generating preview.
 	_previewState = Data::PreviewState::Cancelled;
+	_fieldLinksParser.setDisabled(disable);
 	_fieldLinksParser.parseNow();
 	_parsedLinks = _fieldLinksParser.list().current();
 	_previewState = value;
+	checkPreview();
 }
 
 void WebpageProcessor::cancel() {
@@ -608,7 +612,7 @@ void FieldHeader::init() {
 		const auto isLeftIcon = (pos.x() < st::historyReplySkip);
 		const auto isLeftButton = (e->button() == Qt::LeftButton);
 		if (type == QEvent::MouseButtonPress) {
-			if (isLeftButton && isLeftIcon) {
+			if (isLeftButton && isLeftIcon && !inPreviewRect) {
 				*leftIconPressed = true;
 				update();
 			} else if (isLeftButton && inPhotoEdit) {
@@ -898,7 +902,7 @@ void FieldHeader::paintEditOrReplyToMessage(Painter &p) {
 		.now = crl::now(),
 		.pausedEmoji = p.inactive() || On(PowerSaving::kEmojiChat),
 		.pausedSpoiler = p.inactive() || On(PowerSaving::kChatSpoiler),
-		.elisionLines = 1,
+		.elisionOneLine = true,
 	});
 }
 
@@ -962,11 +966,13 @@ MsgId FieldHeader::getDraftMessageId() const {
 }
 
 void FieldHeader::updateControlsGeometry(QSize size) {
+	const auto isReadyToForward = readyToForward();
+	const auto skip = isReadyToForward ? 0 : st::historyReplySkip;
 	_cancel->moveToRight(0, 0);
 	_clickableRect = QRect(
-		st::historyReplySkip,
+		skip,
 		0,
-		width() - st::historyReplySkip - _cancel->width(),
+		width() - skip - _cancel->width(),
 		height());
 	_shownMessagePreviewRect = QRect(
 		st::historyReplySkip,
@@ -996,6 +1002,7 @@ void FieldHeader::updateForwarding(
 	if (readyToForward()) {
 		replyToMessage({});
 	}
+	updateControlsGeometry(size());
 }
 
 rpl::producer<FullMsgId> FieldHeader::editMsgIdValue() const {
@@ -1069,9 +1076,10 @@ ComposeControls::ComposeControls(
 , _wrap(std::make_unique<Ui::RpWidget>(parent))
 , _writeRestricted(std::make_unique<Ui::RpWidget>(parent))
 , _send(std::make_shared<Ui::SendButton>(_wrap.get(), _st.send))
-, _attachToggle(Ui::CreateChild<Ui::IconButton>(
-	_wrap.get(),
-	_st.attach))
+, _like(_features.likes
+	? Ui::CreateChild<Ui::IconButton>(_wrap.get(), _st.like)
+	: nullptr)
+, _attachToggle(Ui::CreateChild<Ui::IconButton>(_wrap.get(), _st.attach))
 , _tabbedSelectorToggle(Ui::CreateChild<Ui::EmojiButton>(
 	_wrap.get(),
 	_st.emoji))
@@ -1138,6 +1146,7 @@ void ComposeControls::setHistory(SetHistoryArgs &&args) {
 		| rpl::then(std::move(args.slowmodeSecondsLeft));
 	_sendDisabledBySlowmode = rpl::single(false)
 		| rpl::then(std::move(args.sendDisabledBySlowmode));
+	_liked = args.liked ? std::move(args.liked) : rpl::single(false);
 	_writeRestriction = rpl::single(std::optional<QString>())
 		| rpl::then(std::move(args.writeRestriction));
 	const auto history = *args.history;
@@ -1153,6 +1162,7 @@ void ComposeControls::setHistory(SetHistoryArgs &&args) {
 	initWebpageProcess();
 	initForwardProcess();
 	updateBotCommandShown();
+	updateLikeShown();
 	updateMessagesTTLShown();
 	updateControlsGeometry(_wrap->size());
 	updateControlsVisibility();
@@ -1238,9 +1248,12 @@ bool ComposeControls::focus() {
 	return true;
 }
 
+bool ComposeControls::focused() const {
+	return Ui::InFocusChain(_wrap.get());
+}
+
 rpl::producer<bool> ComposeControls::focusedValue() const {
-	return rpl::single(Ui::InFocusChain(_wrap.get()))
-		| rpl::then(_focusChanges.events());
+	return rpl::single(focused()) | rpl::then(_field->focusedChanges());
 }
 
 rpl::producer<bool> ComposeControls::tabbedPanelShownValue() const {
@@ -1281,12 +1294,9 @@ auto ComposeControls::sendContentRequests(SendRequestType requestType) const {
 		return (_send->type() == type) && (sendRequestType == requestType);
 	});
 	auto map = rpl::map_to(Api::SendOptions());
-	auto submits = base::qt_signal_producer(
-		_field.get(),
-		&Ui::InputField::submitted);
 	return rpl::merge(
 		_send->clicks() | filter | map,
-		std::move(submits) | filter | map,
+		_field->submits() | filter | map,
 		_sendCustomRequests.events());
 }
 
@@ -1307,12 +1317,9 @@ rpl::producer<MessageToEdit> ComposeControls::editRequests() const {
 	auto filter = rpl::filter([=] {
 		return _send->type() == Ui::SendButton::Type::Save;
 	});
-	auto submits = base::qt_signal_producer(
-		_field.get(),
-		&Ui::InputField::submitted);
 	return rpl::merge(
 		_send->clicks() | filter | toValue,
-		std::move(submits) | filter | toValue);
+		_field->submits() | filter | toValue);
 }
 
 rpl::producer<std::optional<bool>> ComposeControls::attachRequests() const {
@@ -1559,6 +1566,15 @@ void ComposeControls::init() {
 		_botCommandStart->setClickedCallback([=] { setText({ "/" }); });
 	}
 
+	if (_like) {
+		_like->setClickedCallback([=] { _likeToggled.fire({}); });
+		_liked.value(
+		) | rpl::start_with_next([=](bool liked) {
+			const auto icon = liked ? &_st.liked : nullptr;
+			_like->setIconOverride(icon, icon);
+		}, _like->lifetime());
+	}
+
 	_wrap->sizeValue(
 	) | rpl::start_with_next([=](QSize size) {
 		updateControlsGeometry(size);
@@ -1757,17 +1773,22 @@ void ComposeControls::initKeyHandler() {
 void ComposeControls::initField() {
 	_field->setMaxHeight(st::historyComposeFieldMaxHeight);
 	updateSubmitSettings();
-	//Ui::Connect(_field, &Ui::InputField::submitted, [=] { send(); });
-	Ui::Connect(_field, &Ui::InputField::cancelled, [=] { escape(); });
-	Ui::Connect(_field, &Ui::InputField::tabbed, [=] { fieldTabbed(); });
-	Ui::Connect(_field, &Ui::InputField::resized, [=] { updateHeight(); });
-	Ui::Connect(_field, &Ui::InputField::focused, [=] {
-		_focusChanges.fire(true);
-	});
-	Ui::Connect(_field, &Ui::InputField::blurred, [=] {
-		_focusChanges.fire(false);
-	});
-	Ui::Connect(_field, &Ui::InputField::changed, [=] { fieldChanged(); });
+	_field->cancelled(
+	) | rpl::start_with_next([=] {
+		escape();
+	}, _field->lifetime());
+	_field->tabbed(
+	) | rpl::start_with_next([=] {
+		fieldTabbed();
+	}, _field->lifetime());
+	_field->heightChanges(
+	) | rpl::start_with_next([=] {
+		updateHeight();
+	}, _field->lifetime());
+	_field->changes(
+	) | rpl::start_with_next([=] {
+		fieldChanged();
+	}, _field->lifetime());
 	InitMessageField(_show, _field, [=](not_null<DocumentData*> emoji) {
 		if (_history && Data::AllowEmojiWithoutPremium(_history->peer)) {
 			return true;
@@ -1980,7 +2001,7 @@ void ComposeControls::fieldChanged() {
 	if (!_hasSendText.current() && _preview) {
 		_preview->setState(Data::PreviewState::Allowed);
 	}
-	if (updateBotCommandShown()) {
+	if (updateBotCommandShown() || updateLikeShown()) {
 		updateControlsVisibility();
 		updateControlsGeometry(_wrap->size());
 	}
@@ -2148,6 +2169,7 @@ void ComposeControls::applyDraft(FieldHistoryAction fieldHistoryAction) {
 		}
 		_header->editMessage({});
 		_header->replyToMessage({});
+		_preview->refreshState(Data::PreviewState::Allowed, false);
 		_canReplaceMedia = false;
 		_photoEditMedia = nullptr;
 		return;
@@ -2161,13 +2183,15 @@ void ComposeControls::applyDraft(FieldHistoryAction fieldHistoryAction) {
 	draft->cursor.applyTo(_field);
 	_textUpdateEvents = TextUpdateEvent::SaveDraft | TextUpdateEvent::SendTyping;
 	if (_preview) {
-		_preview->refreshState(draft->previewState);
+		const auto disablePreview = (editDraft != nullptr);
+		_preview->refreshState(draft->previewState, disablePreview);
 	}
 
 	if (draft == editDraft) {
 		const auto resolve = [=] {
 			if (const auto item = _history->owner().message(editingId)) {
 				const auto media = item->media();
+				const auto disablePreview = media && !media->webpage();
 				_canReplaceMedia = media && media->allowsEditMedia();
 				_photoEditMedia = (_canReplaceMedia
 					&& _regularWindow
@@ -2181,6 +2205,7 @@ void ComposeControls::applyDraft(FieldHistoryAction fieldHistoryAction) {
 						item->fullId());
 				}
 				_header->editMessage(editingId, _photoEditMedia != nullptr);
+				_preview->refreshState(_preview->state(), disablePreview);
 				return true;
 			}
 			_canReplaceMedia = false;
@@ -2521,6 +2546,7 @@ void ComposeControls::updateControlsGeometry(QSize size) {
 		- st::historySendRight
 		- _send->width()
 		- _tabbedSelectorToggle->width()
+		- (_likeShown ? _like->width() : 0)
 		- (_botCommandShown ? _botCommandStart->width() : 0)
 		- (_silent ? _silent->width() : 0)
 		- (_ttlInfo ? _ttlInfo->width() : 0);
@@ -2560,6 +2586,12 @@ void ComposeControls::updateControlsGeometry(QSize size) {
 	right += _send->width();
 	_tabbedSelectorToggle->moveToRight(right, buttonsTop);
 	right += _tabbedSelectorToggle->width();
+	if (_like) {
+		_like->moveToRight(right, buttonsTop);
+		if (_likeShown) {
+			right += _like->width();
+		}
+	}
 	if (_botCommandStart) {
 		_botCommandStart->moveToRight(right, buttonsTop);
 		if (_botCommandShown) {
@@ -2584,6 +2616,9 @@ void ComposeControls::updateControlsVisibility() {
 	if (_botCommandStart) {
 		_botCommandStart->setVisible(_botCommandShown);
 	}
+	if (_like) {
+		_like->setVisible(_likeShown);
+	}
 	if (_ttlInfo) {
 		_ttlInfo->show();
 	}
@@ -2596,6 +2631,15 @@ void ComposeControls::updateControlsVisibility() {
 	} else {
 		_attachToggle->show();
 	}
+}
+
+bool ComposeControls::updateLikeShown() {
+	auto shown = _like && !HasSendText(_field);
+	if (_likeShown != shown) {
+		_likeShown = shown;
+		return true;
+	}
+	return false;
 }
 
 bool ComposeControls::updateBotCommandShown() {
@@ -2903,6 +2947,26 @@ void ComposeControls::cancelEditMessage() {
 	saveDraft();
 }
 
+void ComposeControls::maybeCancelEditMessage() {
+	Expects(_history != nullptr);
+
+	const auto item = _history->owner().message(_header->editMsgId());
+	if (item && EditTextChanged(item, _field->getTextWithTags())) {
+		const auto guard = _field.get();
+		_show->show(Ui::MakeConfirmBox({
+			.text = tr::lng_cancel_edit_post_sure(),
+			.confirmed = crl::guard(guard, [this](Fn<void()> &&close) {
+				cancelEditMessage();
+				close();
+			}),
+			.confirmText = tr::lng_cancel_edit_post_yes(),
+			.cancelText = tr::lng_cancel_edit_post_no(),
+		}));
+	} else {
+		cancelEditMessage();
+	}
+}
+
 void ComposeControls::replyToMessage(FullMsgId id) {
 	Expects(_history != nullptr);
 	Expects(draftKeyCurrent() != Data::DraftKey::None());
@@ -2978,7 +3042,7 @@ bool ComposeControls::handleCancelRequest() {
 		_autocomplete->hideAnimated();
 		return true;
 	} else if (isEditingMessage()) {
-		cancelEditMessage();
+		maybeCancelEditMessage();
 		return true;
 	} else if (readyToForward()) {
 		cancelForward();
@@ -2991,7 +3055,7 @@ bool ComposeControls::handleCancelRequest() {
 }
 
 void ComposeControls::tryProcessKeyInput(not_null<QKeyEvent*> e) {
-	if (_field->isVisible()) {
+	if (_field->isVisible() && !e->text().isEmpty()) {
 		_field->setFocusFast();
 		QCoreApplication::sendEvent(_field->rawTextEdit(), e);
 	}
@@ -3100,6 +3164,10 @@ rpl::producer<not_null<QEvent*>> ComposeControls::viewportEvents() const {
 	return _voiceRecordBar->lockViewportEvents();
 }
 
+rpl::producer<> ComposeControls::likeToggled() const {
+	return _likeToggled.events();
+}
+
 bool ComposeControls::isRecording() const {
 	return _voiceRecordBar->isRecording();
 }
@@ -3121,6 +3189,12 @@ rpl::producer<bool> ComposeControls::hasSendTextValue() const {
 
 rpl::producer<bool> ComposeControls::fieldMenuShownValue() const {
 	return _field->menuShownValue();
+}
+
+not_null<Ui::RpWidget*> ComposeControls::likeAnimationTarget() const {
+	Expects(_like != nullptr);
+
+	return _like;
 }
 
 bool ComposeControls::preventsClose(Fn<void()> &&continueCallback) const {

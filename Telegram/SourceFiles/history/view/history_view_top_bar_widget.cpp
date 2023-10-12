@@ -27,7 +27,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/controls/userpic_button.h"
 #include "ui/wrap/fade_wrap.h"
 #include "ui/widgets/buttons.h"
-#include "ui/widgets/input_fields.h"
+#include "ui/widgets/fields/input_field.h"
 #include "ui/widgets/popup_menu.h"
 #include "ui/widgets/menu/menu_add_action_callback_factory.h"
 #include "ui/effects/radial_animation.h"
@@ -45,6 +45,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_group_call.h" // GroupCall::input.
 #include "data/data_folder.h"
 #include "data/data_session.h"
+#include "data/data_stories.h"
 #include "data/data_channel.h"
 #include "data/data_chat.h"
 #include "data/data_user.h"
@@ -561,7 +562,7 @@ void TopBarWidget::paintTopBar(Painter &p) {
 			{
 				.peer = peer,
 				.verified = &st::dialogsVerifiedIcon,
-				.premium = &st::dialogsPremiumIcon,
+				.premium = &st::dialogsPremiumIcon.icon,
 				.scam = &st::attentionButtonFg,
 				.premiumFg = &st::dialogsVerifiedIconBg,
 				.customEmojiRepaint = [=] { update(); },
@@ -754,6 +755,14 @@ void TopBarWidget::setActiveChat(
 				updateControlsVisibility();
 				updateControlsGeometry();
 			}, _activeChatLifetime);
+
+			if (const auto channel = peer->asChannel()) {
+				if (channel->canEditStories()
+					&& !channel->owner().stories().archiveCountKnown(
+						channel->id)) {
+					channel->owner().stories().archiveLoadMore(channel->id);
+				}
+			}
 		}
 
 		if (const auto history = _activeChat.key.history()) {
@@ -1092,7 +1101,9 @@ void TopBarWidget::updateControlsVisibility() {
 	const auto callsEnabled = [&] {
 		if (const auto peer = _activeChat.key.peer()) {
 			if (const auto user = peer->asUser()) {
-				return !user->isSelf() && !user->isBot();
+				return !user->isSelf()
+					&& !user->isBot()
+					&& !peer->isServiceUser();
 			}
 		}
 		return false;
@@ -1225,10 +1236,12 @@ bool TopBarWidget::toggleSearch(bool shown, anim::type animated) {
 		_searchCancel.create(this, st::dialogsCancelSearch);
 		_searchCancel->show(anim::type::instant);
 		_searchCancel->setClickedCallback([=] { _searchCancelled.fire({}); });
-		QObject::connect(_searchField, &Ui::InputField::submitted, [=] {
+		_searchField->submits(
+		) | rpl::start_with_next([=] {
 			_searchSubmitted.fire({});
-		});
-		QObject::connect(_searchField, &Ui::InputField::changed, [=] {
+		}, _searchField->lifetime());
+		_searchField->changes(
+		) | rpl::start_with_next([=] {
 			const auto was = _searchQuery.current();
 			const auto now = _searchField->getLastText();
 			if (_jumpToDate && was.isEmpty() != now.isEmpty()) {
@@ -1243,7 +1256,7 @@ bool TopBarWidget::toggleSearch(bool shown, anim::type animated) {
 				}
 			}
 			_searchQuery = now;
-		});
+		}, _searchField->lifetime());
 	} else {
 		Assert(_searchField != nullptr);
 	}

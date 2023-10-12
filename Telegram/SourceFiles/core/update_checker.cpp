@@ -42,16 +42,16 @@ extern "C" {
 } // extern "C"
 
 #ifndef TDESKTOP_DISABLE_AUTOUPDATE
-#if defined Q_OS_WIN && !defined DESKTOP_APP_USE_PACKAGED // use Lzma SDK for win
+#if defined Q_OS_WIN && !defined TDESKTOP_USE_PACKAGED // use Lzma SDK for win
 #include <LzmaLib.h>
-#else // Q_OS_WIN && !DESKTOP_APP_USE_PACKAGED
+#else // Q_OS_WIN && !TDESKTOP_USE_PACKAGED
 #include <lzma.h>
-#endif // else of Q_OS_WIN && !DESKTOP_APP_USE_PACKAGED
+#endif // else of Q_OS_WIN && !TDESKTOP_USE_PACKAGED
 #endif // !TDESKTOP_DISABLE_AUTOUPDATE
 
-#ifdef Q_OS_UNIX
+#ifndef Q_OS_WIN
 #include <unistd.h>
-#endif // Q_OS_UNIX
+#endif // !Q_OS_WIN
 
 namespace Core {
 namespace {
@@ -275,11 +275,11 @@ bool UnpackUpdate(const QString &filepath) {
 		return false;
 	}
 
-#if defined Q_OS_WIN && !defined DESKTOP_APP_USE_PACKAGED // use Lzma SDK for win
+#if defined Q_OS_WIN && !defined TDESKTOP_USE_PACKAGED // use Lzma SDK for win
 	const int32 hSigLen = 128, hShaLen = 20, hPropsLen = LZMA_PROPS_SIZE, hOriginalSizeLen = sizeof(int32), hSize = hSigLen + hShaLen + hPropsLen + hOriginalSizeLen; // header
-#else // Q_OS_WIN && !DESKTOP_APP_USE_PACKAGED
+#else // Q_OS_WIN && !TDESKTOP_USE_PACKAGED
 	const int32 hSigLen = 128, hShaLen = 20, hPropsLen = 0, hOriginalSizeLen = sizeof(int32), hSize = hSigLen + hShaLen + hOriginalSizeLen; // header
-#endif // Q_OS_WIN && !DESKTOP_APP_USE_PACKAGED
+#endif // Q_OS_WIN && !TDESKTOP_USE_PACKAGED
 
 	QByteArray compressed = input.readAll();
 	int32 compressedLen = compressed.size() - hSize;
@@ -350,14 +350,14 @@ bool UnpackUpdate(const QString &filepath) {
 	uncompressed.resize(uncompressedLen);
 
 	size_t resultLen = uncompressed.size();
-#if defined Q_OS_WIN && !defined DESKTOP_APP_USE_PACKAGED // use Lzma SDK for win
+#if defined Q_OS_WIN && !defined TDESKTOP_USE_PACKAGED // use Lzma SDK for win
 	SizeT srcLen = compressedLen;
 	int uncompressRes = LzmaUncompress((uchar*)uncompressed.data(), &resultLen, (const uchar*)(compressed.constData() + hSize), &srcLen, (const uchar*)(compressed.constData() + hSigLen + hShaLen), LZMA_PROPS_SIZE);
 	if (uncompressRes != SZ_OK) {
 		LOG(("Update Error: could not uncompress lzma, code: %1").arg(uncompressRes));
 		return false;
 	}
-#else // Q_OS_WIN && !DESKTOP_APP_USE_PACKAGED
+#else // Q_OS_WIN && !TDESKTOP_USE_PACKAGED
 	lzma_stream stream = LZMA_STREAM_INIT;
 
 	lzma_ret ret = lzma_stream_decoder(&stream, UINT64_MAX, LZMA_CONCATENATED);
@@ -400,7 +400,7 @@ bool UnpackUpdate(const QString &filepath) {
 		LOG(("Error in decompression: %1 (error code %2)").arg(msg).arg(res));
 		return false;
 	}
-#endif // Q_OS_WIN && !DESKTOP_APP_USE_PACKAGED
+#endif // Q_OS_WIN && !TDESKTOP_USE_PACKAGED
 
 	tempDir.mkdir(tempDir.absolutePath());
 
@@ -448,9 +448,9 @@ bool UnpackUpdate(const QString &filepath) {
 			bool executable = false;
 
 			stream >> relativeName >> fileSize >> fileInnerData;
-#ifdef Q_OS_UNIX
+#ifndef Q_OS_WIN
 			stream >> executable;
-#endif // Q_OS_UNIX
+#endif // !Q_OS_WIN
 			if (stream.status() != QDataStream::Ok) {
 				LOG(("Update Error: cant read file from downloaded stream, status: %1").arg(stream.status()));
 				return false;
@@ -1554,10 +1554,10 @@ bool checkReadyUpdate() {
 #elif defined Q_OS_MAC // Q_OS_WIN
 	QString curUpdater = (cExeDir() + cExeName() + u"/Contents/Frameworks/Updater"_q);
 	QFileInfo updater(cWorkingDir() + u"tupdates/temp/Telegram.app/Contents/Frameworks/Updater"_q);
-#elif defined Q_OS_UNIX // Q_OS_MAC
+#else // Q_OS_MAC
 	QString curUpdater = (cExeDir() + u"Updater"_q);
 	QFileInfo updater(cWorkingDir() + u"tupdates/temp/Updater"_q);
-#endif // Q_OS_UNIX
+#endif // else for Q_OS_WIN || Q_OS_MAC
 	if (!updater.exists()) {
 		QFileInfo current(curUpdater);
 		if (!current.exists()) {
@@ -1591,7 +1591,7 @@ bool checkReadyUpdate() {
 		ClearAll();
 		return false;
 	}
-#elif defined Q_OS_UNIX // Q_OS_MAC
+#else // Q_OS_MAC
 	// if the files in the directory are owned by user, while the directory is not,
 	// update will still fail since it's not possible to remove files
 	if (QFile::exists(curUpdater)
@@ -1619,7 +1619,7 @@ bool checkReadyUpdate() {
 			return false;
 		}
 	}
-#endif // Q_OS_UNIX
+#endif // else for Q_OS_WIN || Q_OS_MAC
 
 #ifdef Q_OS_MAC
 	base::Platform::RemoveQuarantine(QFileInfo(curUpdater).absolutePath());

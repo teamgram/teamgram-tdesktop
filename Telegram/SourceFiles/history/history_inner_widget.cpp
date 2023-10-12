@@ -8,7 +8,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/history_inner_widget.h"
 
 #include "core/file_utilities.h"
-#include "core/crash_reports.h"
 #include "core/click_handler_types.h"
 #include "history/history.h"
 #include "history/admin_log/history_admin_log_item.h"
@@ -32,7 +31,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/widgets/menu/menu_add_action_callback_factory.h"
 #include "ui/widgets/menu/menu_multiline_action.h"
 #include "ui/widgets/popup_menu.h"
-#include "ui/image/image.h"
 #include "ui/effects/path_shift_gradient.h"
 #include "ui/effects/message_sending_animation_controller.h"
 #include "ui/effects/reaction_fly_animation.h"
@@ -40,16 +38,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/boxes/report_box.h"
 #include "ui/layers/generic_box.h"
 #include "ui/controls/delete_message_context_action.h"
-#include "ui/controls/who_reacted_context_action.h"
 #include "ui/painter.h"
 #include "ui/ui_utility.h"
-#include "ui/cached_round_corners.h"
 #include "ui/inactive_press.h"
-#include "window/window_adaptive.h"
 #include "window/window_session_controller.h"
 #include "window/window_controller.h"
 #include "window/window_peer_menu.h"
-#include "window/window_controller.h"
 #include "window/notifications_manager.h"
 #include "boxes/about_sponsored_box.h"
 #include "boxes/delete_messages_box.h"
@@ -94,12 +88,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_file_origin.h"
 #include "data/data_histories.h"
 #include "data/data_changes.h"
-#include "data/stickers/data_stickers.h"
 #include "data/data_sponsored_messages.h"
 #include "dialogs/ui/dialogs_video_userpic.h"
 #include "settings/settings_premium.h"
 #include "styles/style_chat.h"
-#include "styles/style_window.h" // st::windowMinWidth
 #include "styles/style_menu_icons.h"
 
 #include <QtGui/QClipboard>
@@ -1689,9 +1681,7 @@ void HistoryInner::mouseActionStart(const QPoint &screenPos, Qt::MouseButton but
 				if (uponSelected) {
 					_mouseAction = MouseAction::PrepareDrag; // start text drag
 				} else if (!_pressWasInactive) {
-					const auto media = Element::Pressed()->media();
-					if ((media && media->dragItem())
-						|| _mouseCursorState == CursorState::Date) {
+					if (_mouseCursorState == CursorState::Date) {
 						_mouseAction = MouseAction::PrepareDrag; // start sticker drag or by-date drag
 					} else {
 						if (dragState.afterSymbol) ++_mouseTextSymbol;
@@ -1743,16 +1733,16 @@ std::unique_ptr<QMimeData> HistoryInner::prepareDrag() {
 		return nullptr;
 	}
 
-	const auto mouseActionView = viewByItem(_mouseActionItem);
+	const auto pressedView = viewByItem(_mouseActionItem);
 	bool uponSelected = false;
-	if (mouseActionView) {
+	if (pressedView) {
 		if (!_selected.empty() && _selected.cbegin()->second == FullSelection) {
-			uponSelected = _dragStateItem
-				&& (_selected.find(_dragStateItem) != _selected.cend());
+			uponSelected = _mouseActionItem
+				&& (_selected.find(_mouseActionItem) != _selected.cend());
 		} else {
 			StateRequest request;
 			request.flags |= Ui::Text::StateRequest::Flag::LookupSymbol;
-			auto dragState = mouseActionView->textState(_dragStartPosition, request);
+			auto dragState = pressedView->textState(_dragStartPosition, request);
 			uponSelected = (dragState.cursor == CursorState::Text);
 			if (uponSelected) {
 				if (_selected.empty()
@@ -1793,20 +1783,15 @@ std::unique_ptr<QMimeData> HistoryInner::prepareDrag() {
 			}
 		}
 		return mimeData;
-	} else if (_dragStateItem) {
-		const auto view = viewByItem(_dragStateItem);
-		if (!view) {
-			return nullptr;
-		}
+	} else if (pressedView) {
 		auto forwardIds = MessageIdsList();
 		if (_mouseCursorState == CursorState::Date) {
-			forwardIds = session().data().itemOrItsGroup(_dragStateItem);
-		} else if (view->isHiddenByGroup() && pressedHandler) {
-			forwardIds = MessageIdsList(1, _dragStateItem->fullId());
-		} else if (const auto media = view->media()) {
-			if (media->dragItemByHandler(pressedHandler)
-				|| media->dragItem()) {
-				forwardIds = MessageIdsList(1, _dragStateItem->fullId());
+			forwardIds = session().data().itemOrItsGroup(_mouseActionItem);
+		} else if (pressedView->isHiddenByGroup() && pressedHandler) {
+			forwardIds = MessageIdsList(1, _mouseActionItem->fullId());
+		} else if (const auto media = pressedView->media()) {
+			if (media->dragItemByHandler(pressedHandler)) {
+				forwardIds = MessageIdsList(1, _mouseActionItem->fullId());
 			}
 		}
 		if (forwardIds.empty()) {
@@ -1815,7 +1800,7 @@ std::unique_ptr<QMimeData> HistoryInner::prepareDrag() {
 		session().data().setMimeForwardIds(std::move(forwardIds));
 		auto result = std::make_unique<QMimeData>();
 		result->setData(u"application/x-td-forward"_q, "1");
-		if (const auto media = view->media()) {
+		if (const auto media = pressedView->media()) {
 			if (const auto document = media->getDocument()) {
 				const auto filepath = document->filepath(true);
 				if (!filepath.isEmpty()) {
@@ -2341,8 +2326,9 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 		const auto item = _dragStateItem;
 		const auto itemId = item ? item->fullId() : FullMsgId();
 		if (isUponSelected > 0) {
+			const auto selectedText = getSelectedText();
 			if (!hasCopyRestrictionForSelected()
-				&& !getSelectedText().empty()) {
+				&& !selectedText.empty()) {
 				_menu->addAction(
 					(isUponSelected > 1
 						? tr::lng_context_copy_selected_items(tr::now)
@@ -2350,11 +2336,12 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 					[=] { copySelectedText(); },
 					&st::menuIconCopy);
 			}
-			if (!Ui::SkipTranslate(getSelectedText().rich)) {
+			if (item && !Ui::SkipTranslate(selectedText.rich)) {
+				const auto peer = item->history()->peer;
 				_menu->addAction(tr::lng_context_translate_selected({}), [=] {
 					_controller->show(Box(
 						Ui::TranslateBox,
-						item->history()->peer,
+						peer,
 						MsgId(),
 						getSelectedText().rich,
 						hasCopyRestrictionForSelected()));
@@ -2385,7 +2372,7 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 					_widget->confirmDeleteSelected();
 				}, &st::menuIconDelete);
 			}
-			if (selectedState.count > 0) {
+			if (selectedState.count > 0 && !hasCopyRestrictionForSelected()) {
 				Menu::AddDownloadFilesAction(_menu, controller, _selected, this);
 			}
 			_menu->addAction(tr::lng_context_clear_selection(tr::now), [=] {
@@ -2401,11 +2388,16 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 					}, &st::menuIconForward);
 				}
 				if (item->canDelete()) {
-					_menu->addAction(Ui::DeleteMessageContextAction(
-						_menu->menu(),
-						[=] { deleteItem(itemId); },
-						item->ttlDestroyAt(),
-						[=] { _menu = nullptr; }));
+					const auto callback = [=] { deleteItem(itemId); };
+					if (item->isUploading()) {
+						_menu->addAction(tr::lng_context_cancel_upload(tr::now), callback, &st::menuIconCancel);
+					} else {
+						_menu->addAction(Ui::DeleteMessageContextAction(
+							_menu->menu(),
+							callback,
+							item->ttlDestroyAt(),
+							[=] { _menu = nullptr; }));
+					}
 				}
 				if (!blockSender && item->suggestReport()) {
 					_menu->addAction(tr::lng_context_report_msg(tr::now), [=] {
@@ -2443,8 +2435,8 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 			: QString();
 
 		if (isUponSelected > 0) {
-			if (!hasCopyRestrictionForSelected()
-				&& !getSelectedText().empty()) {
+			const auto selectedText = getSelectedText();
+			if (!hasCopyRestrictionForSelected() && !selectedText.empty()) {
 				_menu->addAction(
 					((isUponSelected > 1)
 						? tr::lng_context_copy_selected_items(tr::now)
@@ -2452,13 +2444,14 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 					[=] { copySelectedText(); },
 					&st::menuIconCopy);
 			}
-			if (!Ui::SkipTranslate(getSelectedText().rich)) {
+			if (item && !Ui::SkipTranslate(selectedText.rich)) {
+				const auto peer = item->history()->peer;
 				_menu->addAction(tr::lng_context_translate_selected({}), [=] {
 					_controller->show(Box(
 						Ui::TranslateBox,
-						item->history()->peer,
+						peer,
 						MsgId(),
-						getSelectedText().rich,
+						selectedText.rich,
 						hasCopyRestrictionForSelected()));
 				}, &st::menuIconTranslate);
 			}
@@ -2550,7 +2543,9 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 			}, &st::menuIconLink);
 		}
 		if (item && item->isSponsored()) {
-			_menu->addSeparator(&st::expandedMenuSeparator);
+			if (!_menu->empty()) {
+				_menu->addSeparator(&st::expandedMenuSeparator);
+			}
 			auto item = base::make_unique_q<Ui::Menu::MultilineAction>(
 				_menu,
 				st::menuWithIcons,
@@ -2575,7 +2570,7 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 					_widget->confirmDeleteSelected();
 				}, &st::menuIconDelete);
 			}
-			if (selectedState.count > 0) {
+			if (selectedState.count > 0 && !hasCopyRestrictionForSelected()) {
 				Menu::AddDownloadFilesAction(_menu, controller, _selected, this);
 			}
 			_menu->addAction(tr::lng_context_clear_selection(tr::now), [=] {
@@ -2746,9 +2741,12 @@ void HistoryInner::copyContextImage(
 		FullMsgId itemId) {
 	const auto item = session().data().message(itemId);
 	const auto media = photo->activeMediaView();
+	const auto restricted = item
+		? showCopyMediaRestriction(item)
+		: IsServerMsgId(itemId.msg);
 	if (photo->isNull() || !media || !media->loaded()) {
 		return;
-	} else if (!showCopyMediaRestriction(item)) {
+	} else if (!restricted) {
 		media->setToClipboard();
 	}
 }
@@ -2911,7 +2909,7 @@ void HistoryInner::keyPressEvent(QKeyEvent *e) {
 		&& !showCopyRestrictionForSelected()) {
 		TextUtilities::SetClipboardText(getSelectedText(), QClipboard::FindBuffer);
 #endif // Q_OS_MAC
-	} else if (e == QKeySequence::Delete) {
+	} else if (e == QKeySequence::Delete || e->key() == Qt::Key_Backspace) {
 		auto selectedState = getSelectionState();
 		if (selectedState.count > 0
 			&& selectedState.canDeleteCount == selectedState.count) {

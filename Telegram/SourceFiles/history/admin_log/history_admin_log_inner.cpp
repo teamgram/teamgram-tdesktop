@@ -1468,7 +1468,7 @@ void InnerWidget::suggestRestrictParticipant(
 				editRestrictions(false, ChatRestrictionsInfo());
 			}).send();
 		}
-	}, &st::menuIconRestrict);
+	}, &st::menuIconPermissions);
 }
 
 void InnerWidget::restrictParticipant(
@@ -1892,8 +1892,7 @@ void InnerWidget::performDrag() {
 	//	auto pressedMedia = static_cast<HistoryView::Media*>(nullptr);
 	//	if (auto pressedItem = Element::Pressed()) {
 	//		pressedMedia = pressedItem->media();
-	//		if (_mouseCursorState == CursorState::Date
-	//			|| (pressedMedia && pressedMedia->dragItem())) {
+	//		if (_mouseCursorState == CursorState::Date) {
 	//			forwardMimeType = u"application/x-td-forward"_q;
 	//			session().data().setMimeForwardIds(
 	//				session().data().itemOrItsGroup(pressedItem->data()));

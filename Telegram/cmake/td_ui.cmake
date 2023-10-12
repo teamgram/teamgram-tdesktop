@@ -70,6 +70,7 @@ PRIVATE
 
     data/data_subscription_option.h
 
+    dialogs/dialogs_three_state_icon.h
     dialogs/ui/dialogs_stories_list.cpp
     dialogs/ui/dialogs_stories_list.h
 
@@ -159,6 +160,8 @@ PRIVATE
 
     ui/boxes/auto_delete_settings.cpp
     ui/boxes/auto_delete_settings.h
+    ui/boxes/boost_box.cpp
+    ui/boxes/boost_box.h
     ui/boxes/calendar_box.cpp
     ui/boxes/calendar_box.h
     ui/boxes/choose_date_time.cpp
@@ -260,6 +263,7 @@ PRIVATE
     ui/controls/who_reacted_context_action.cpp
     ui/controls/who_reacted_context_action.h
     ui/controls/window_outdated_bar.cpp
+    ui/controls/window_outdated_bar_dummy.cpp
     ui/controls/window_outdated_bar.h
     ui/effects/fireworks_animation.cpp
     ui/effects/fireworks_animation.h
@@ -275,6 +279,8 @@ PRIVATE
     ui/effects/premium_stars.h
     ui/effects/premium_stars_colored.cpp
     ui/effects/premium_stars_colored.h
+    ui/effects/premium_top_bar.cpp
+    ui/effects/premium_top_bar.h
     ui/effects/round_checkbox.cpp
     ui/effects/round_checkbox.h
     ui/effects/scroll_content_shadow.cpp
@@ -329,6 +335,16 @@ PRIVATE
 
     ui/ui_pch.h
 )
+
+if (DESKTOP_APP_SPECIAL_TARGET)
+    remove_target_sources(td_ui ${src_loc}
+        ui/controls/window_outdated_bar_dummy.cpp
+    )
+else()
+    remove_target_sources(td_ui ${src_loc}
+        ui/controls/window_outdated_bar.cpp
+    )
+endif()
 
 target_include_directories(td_ui
 PUBLIC

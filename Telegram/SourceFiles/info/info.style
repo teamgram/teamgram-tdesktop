@@ -410,15 +410,6 @@ infoIconMediaStories: icon {{ "info/info_media_stories", infoIconFg }};
 infoIconMediaStoriesArchive: icon {{ "info/info_stories_archive", infoIconFg }};
 infoIconMediaStoriesRecent: icon {{ "info/info_stories_recent", infoIconFg }};
 
-infoRoundedIconRequests: icon {{ "info/edit/group_manage_join_requests", settingsIconFg }};
-infoRoundedIconRecentActions: icon {{ "info/edit/group_manage_actions", settingsIconFg }};
-infoRoundedIconAdministrators: icon {{ "info/edit/group_manage_admins", settingsIconFg }};
-infoRoundedIconInviteLinks: icon {{ "info/edit/group_manage_links", settingsIconFg }};
-infoRoundedIconReactions: icon {{ "info/edit/group_manage_reactions", settingsIconFg }};
-infoRoundedIconSignature: icon {{ "info/edit/channel_manage_signature", settingsIconFg }};
-infoRoundedIconAntiSpam: icon {{ "info/edit/antispam", settingsIconFg }};
-infoRoundedIconHideMembers: icon {{ "info/edit/hidden_members", settingsIconFg }};
-
 infoIconShare: icon {{ "info/info_share", infoIconFg }};
 infoIconEdit: icon {{ "info/info_edit", infoIconFg }};
 infoIconDelete: icon {{ "info/info_delete", infoIconFg }};
@@ -473,8 +464,10 @@ infoBlockButton: SettingsButton(infoProfileButton) {
 	textFg: attentionButtonFg;
 	textFgOver: attentionButtonFgOver;
 }
-infoCreateLinkedChatButton: SettingsButton(infoMainButton) {
+infoCreateLinkedChatButton: SettingsButton(infoProfileButton) {
 	padding: margins(74px, 10px, 8px, 8px);
+	textFg: lightButtonFg;
+	textFgOver: lightButtonFgOver;
 }
 infoUnlinkChatButton: SettingsButton(infoCreateLinkedChatButton) {
 	textFg: attentionButtonFg;
@@ -589,12 +582,11 @@ manageGroupButtonInner: SettingsButton(infoProfileButton) {
 }
 manageGroupButton: SettingsCountButton(managePeerButton) {
 	button: manageGroupButtonInner;
-	labelPosition: point(22px, 12px);
+	labelPosition: point(22px, 10px);
 	iconPosition: point(20px, 4px);
 }
 
 manageGroupTopButtonWithText: SettingsCountButton(manageGroupButton) {
-	labelPosition: point(22px, 10px);
 	iconPosition: point(0px, 0px);
 }
 manageGroupTopicsButton: SettingsCountButton(manageGroupTopButtonWithText) {
@@ -607,15 +599,20 @@ manageGroupTopicsButton: SettingsCountButton(manageGroupTopButtonWithText) {
 		}
 	}
 }
+manageGroupNoIconButtonInner: SettingsButton(infoProfileButton) {
+	padding: margins(25px, 11px, 24px, 8px);
+}
+manageGroupNoIconButton: SettingsCountButton(manageGroupTopButtonWithText) {
+	button: manageGroupNoIconButtonInner;
+	labelPosition: point(22px, 11px);
+	iconPosition: point(0px, 0px);
+}
 
-manageDeleteGroupButton: SettingsCountButton(manageGroupTopButtonWithText) {
-	button: SettingsButton(infoProfileButton) {
-		padding: margins(25px, 11px, 24px, 8px);
+manageDeleteGroupButton: SettingsCountButton(manageGroupNoIconButton) {
+	button: SettingsButton(manageGroupNoIconButtonInner) {
 		textFg: attentionButtonFg;
 		textFgOver: attentionButtonFg;
 	}
-	labelPosition: point(22px, 11px);
-	iconPosition: point(0px, 0px);
 }
 
 infoEmptyFg: windowSubTextFg;
@@ -644,21 +641,35 @@ infoStoriesAboutArchivePadding: margins(22px, 12px, 22px, 12px);
 
 editPeerBottomButtonsLayoutMargins: margins(0px, 7px, 0px, 0px);
 
-editPeerTopButtonsLayoutSkip: 13px;
-editPeerTopButtonsLayoutSkipToBottom: 12px;
+editPeerTopButtonsLayoutSkip: 5px;
+editPeerTopButtonsLayoutSkipToBottom: 5px;
 
-editPeerTopButtonsLayoutSkipCustomTop: 14px;
-editPeerTopButtonsLayoutSkipCustomBottom: 11px;
+editPeerTopButtonsLayoutSkipCustomBottom: 5px;
 
 editPeerHistoryVisibilityTopSkip: 8px;
 
-editPeerPhotoMargins: margins(22px, 16px, 22px, 8px);
+editPeerPhotoMargins: margins(22px, 8px, 22px, 8px);
 editPeerTitle: defaultInputField;
-editPeerTitleMargins: margins(27px, 21px, 22px, 8px);
-editPeerDescription: InputField(newGroupDescription) {
-	borderFg: transparent;
+editPeerTitleMargins: margins(27px, 13px, 22px, 8px);
+editPeerDescription: InputField(defaultInputField) {
+	textBg: transparent;
+	textMargins: margins(0px, 7px, 0px, 7px);
+
+	placeholderFg: placeholderFg;
+	placeholderFgActive: placeholderFgActive;
+	placeholderFgError: placeholderFgActive;
+	placeholderMargins: margins(2px, 0px, 2px, 0px);
+	placeholderScale: 0.;
+	placeholderFont: normalFont;
+
+	border: 0px;
+	borderActive: 0px;
+
+	heightMin: 32px;
+
+	font: boxTextFont;
 }
-editPeerDescriptionMargins: margins(22px, 5px, 22px, 16px);
+editPeerDescriptionMargins: margins(22px, 3px, 22px, 2px);
 editPeerPrivaciesMargins: margins(15px, 7px, 22px, 0px);
 editPeerPrivacyBottomSkip: 16px;
 editPeerPrivacyLabel: FlatLabel(defaultFlatLabel) {

@@ -10,7 +10,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "lang/lang_keys.h"
 #include "ui/boxes/choose_date_time.h"
 #include "ui/widgets/labels.h"
-#include "ui/widgets/input_fields.h"
+#include "ui/widgets/fields/input_field.h"
+#include "ui/widgets/fields/number_input.h"
 #include "ui/widgets/checkbox.h"
 #include "ui/wrap/slide_wrap.h"
 #include "base/unixtime.h"
@@ -212,7 +213,7 @@ void EditInviteLinkBox(
 				? tr::lng_group_invite_usage_any(tr::now)
 				: !limit
 				? tr::lng_group_invite_usage_custom(tr::now)
-				: QString("%L1").arg(limit);
+				: Lang::FormatCountDecimal(limit);
 			state->usageButtons.emplace(
 				limit,
 				addButton(usagesWrap, usageGroup, limit, text));

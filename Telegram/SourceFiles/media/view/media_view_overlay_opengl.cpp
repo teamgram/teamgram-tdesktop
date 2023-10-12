@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "media/view/media_view_overlay_opengl.h"
 
+#include "data/data_peer_values.h" // AmPremiumValue.
 #include "ui/gl/gl_shader.h"
 #include "ui/painter.h"
 #include "media/stories/media_stories_view.h"
@@ -122,7 +123,16 @@ OverlayWidget::RendererGL::RendererGL(not_null<OverlayWidget*> owner)
 	crl::on_main(this, [=] {
 		_owner->_storiesChanged.events(
 		) | rpl::start_with_next([=] {
-			invalidateControls();
+			if (_owner->_storiesSession) {
+				Data::AmPremiumValue(
+					_owner->_storiesSession
+				) | rpl::start_with_next([=] {
+					invalidateControls();
+				}, _storiesLifetime);
+			} else {
+				_storiesLifetime.destroy();
+				invalidateControls();
+			}
 		}, _lifetime);
 	});
 }
@@ -245,6 +255,18 @@ void OverlayWidget::RendererGL::deinit(
 	_fillProgram = std::nullopt;
 	_controlsProgram = std::nullopt;
 	_contentBuffer = std::nullopt;
+	_controlsFadeImage.destroy(f);
+	_radialImage.destroy(f);
+	_documentBubbleImage.destroy(f);
+	_themePreviewImage.destroy(f);
+	_saveMsgImage.destroy(f);
+	_footerImage.destroy(f);
+	_captionImage.destroy(f);
+	_groupThumbsImage.destroy(f);
+	_controlsImage.destroy(f);
+	for (auto &part : _storiesSiblingParts) {
+		part.destroy(f);
+	}
 }
 
 void OverlayWidget::RendererGL::paint(
@@ -253,9 +275,10 @@ void OverlayWidget::RendererGL::paint(
 	if (handleHideWorkaround(f)) {
 		return;
 	}
-	const auto factor = widget->devicePixelRatio();
+	const auto factor = widget->devicePixelRatioF();
 	if (_factor != factor) {
 		_factor = factor;
+		_ifactor = int(std::ceil(factor));
 		_controlsImage.invalidate();
 
 		// We use the fact that fade texture atlas
@@ -648,8 +671,7 @@ void OverlayWidget::RendererGL::paintControl(
 		QRect inner,
 		float64 innerOpacity,
 		const style::icon &icon) {
-	const auto stories = (_owner->_stories != nullptr);
-	const auto meta = ControlMeta(control, stories);
+	const auto meta = controlMeta(control);
 	Assert(meta.icon == &icon);
 
 	const auto overAlpha = overOpacity * kOverBackgroundOpacity;
@@ -707,18 +729,25 @@ void OverlayWidget::RendererGL::paintControl(
 	FillTexturedRectangle(*_f, &*_controlsProgram, fgOffset);
 }
 
-auto OverlayWidget::RendererGL::ControlMeta(Over control, bool stories)
--> Control {
+auto OverlayWidget::RendererGL::controlMeta(Over control) const -> Control {
+	const auto stories = [&] {
+		return (_owner->_stories != nullptr);
+	};
 	switch (control) {
 	case Over::Left: return {
 		0,
-		stories ? &st::storiesLeft : &st::mediaviewLeft
+		stories() ? &st::storiesLeft : &st::mediaviewLeft
 	};
 	case Over::Right: return {
 		1,
-		stories ? &st::storiesRight : &st::mediaviewRight
+		stories() ? &st::storiesRight : &st::mediaviewRight
 	};
-	case Over::Save: return { 2, &st::mediaviewSave };
+	case Over::Save: return {
+		2,
+		(_owner->saveControlLocked()
+			? &st::mediaviewSaveLocked
+			: &st::mediaviewSave)
+	};
 	case Over::Share: return { 3, &st::mediaviewShare };
 	case Over::Rotate: return { 4, &st::mediaviewRotate };
 	case Over::More: return { 5, &st::mediaviewMore };
@@ -730,14 +759,13 @@ void OverlayWidget::RendererGL::validateControls() {
 	if (!_controlsImage.image().isNull()) {
 		return;
 	}
-	const auto stories = (_owner->_stories != nullptr);
 	const auto metas = {
-		ControlMeta(Over::Left, stories),
-		ControlMeta(Over::Right, stories),
-		ControlMeta(Over::Save, stories),
-		ControlMeta(Over::Share, stories),
-		ControlMeta(Over::Rotate, stories),
-		ControlMeta(Over::More, stories),
+		controlMeta(Over::Left),
+		controlMeta(Over::Right),
+		controlMeta(Over::Save),
+		controlMeta(Over::Share),
+		controlMeta(Over::Rotate),
+		controlMeta(Over::More),
 	};
 	auto maxWidth = 0;
 	auto fullHeight = 0;
@@ -748,10 +776,10 @@ void OverlayWidget::RendererGL::validateControls() {
 	maxWidth = std::max(st::mediaviewIconOver, maxWidth);
 	fullHeight += st::mediaviewIconOver;
 	auto image = QImage(
-		QSize(maxWidth, fullHeight) * _factor,
+		QSize(maxWidth, fullHeight) * _ifactor,
 		QImage::Format_ARGB32_Premultiplied);
 	image.fill(Qt::transparent);
-	image.setDevicePixelRatio(_factor);
+	image.setDevicePixelRatio(_ifactor);
 	{
 		auto p = QPainter(&image);
 		auto index = 0;
@@ -759,8 +787,8 @@ void OverlayWidget::RendererGL::validateControls() {
 		for (const auto &meta : metas) {
 			meta.icon->paint(p, 0, height, maxWidth);
 			_controlsTextures[index++] = QRect(
-				QPoint(0, height) * _factor,
-				meta.icon->size() * _factor);
+				QPoint(0, height) * _ifactor,
+				meta.icon->size() * _ifactor);
 			height += meta.icon->height();
 		}
 		auto hq = PainterHighQualityEnabler(p);
@@ -769,8 +797,8 @@ void OverlayWidget::RendererGL::validateControls() {
 		p.drawEllipse(
 			QRect(0, height, st::mediaviewIconOver, st::mediaviewIconOver));
 		_controlsTextures[index++] = QRect(
-			QPoint(0, height) * _factor,
-			QSize(st::mediaviewIconOver, st::mediaviewIconOver) * _factor);
+			QPoint(0, height) * _ifactor,
+			QSize(st::mediaviewIconOver, st::mediaviewIconOver) * _ifactor);
 		height += st::mediaviewIconOver;
 	}
 	_controlsImage.setImage(std::move(image));
@@ -802,10 +830,10 @@ void OverlayWidget::RendererGL::validateControlsFade() {
 	const auto height = bottomTop + bottom.height();
 
 	auto image = QImage(
-		QSize(width, height) * _factor,
+		QSize(width, height) * _ifactor,
 		QImage::Format_ARGB32_Premultiplied);
 	image.fill(Qt::transparent);
-	image.setDevicePixelRatio(_factor);
+	image.setDevicePixelRatio(_ifactor);
 
 	auto p = QPainter(&image);
 	top.paint(p, 0, 0, width);
@@ -992,18 +1020,18 @@ void OverlayWidget::RendererGL::paintUsingRaster(
 		int bufferOffset,
 		bool transparent) {
 	auto raster = image.takeImage();
-	const auto size = rect.size() * _factor;
+	const auto size = rect.size() * _ifactor;
 	if (raster.width() < size.width() || raster.height() < size.height()) {
 		raster = QImage(size, QImage::Format_ARGB32_Premultiplied);
 		Assert(!raster.isNull());
-		raster.setDevicePixelRatio(_factor);
+		raster.setDevicePixelRatio(_ifactor);
 		if (!transparent
 			&& (raster.width() > size.width()
 				|| raster.height() > size.height())) {
 			raster.fill(Qt::transparent);
 		}
-	} else if (raster.devicePixelRatio() != _factor) {
-		raster.setDevicePixelRatio(_factor);
+	} else if (raster.devicePixelRatio() != _ifactor) {
+		raster.setDevicePixelRatio(_ifactor);
 	}
 
 	if (transparent) {

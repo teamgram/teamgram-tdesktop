@@ -15,7 +15,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/text/text_utilities.h"
 #include "ui/text/text_options.h"
 #include "ui/widgets/buttons.h"
-#include "ui/widgets/input_fields.h"
+#include "ui/widgets/fields/input_field.h"
 #include "ui/wrap/slide_wrap.h"
 #include "ui/effects/panel_animation.h"
 #include "ui/filter_icons.h"
@@ -336,14 +336,18 @@ void EditExceptions(
 		Fn<void()> refresh) {
 	const auto include = (options & Flag::Contacts) != Flags(0);
 	const auto rules = data->current();
+	const auto session = &window->session();
 	auto controller = std::make_unique<EditFilterChatsListController>(
-		&window->session(),
+		session,
 		(include
 			? tr::lng_filters_include_title()
 			: tr::lng_filters_exclude_title()),
 		options,
 		rules.flags() & options,
-		include ? rules.always() : rules.never());
+		include ? rules.always() : rules.never(),
+		[=](int count) {
+			return Box(FilterChatsLimitBox, session, count, include);
+		});
 	const auto rawController = controller.get();
 	auto initBox = [=](not_null<PeerListBox*> box) {
 		box->setCloseByOutsideClick(false);
@@ -615,11 +619,12 @@ void EditFilterBox(
 		nameEditing->custom = true;
 	}, box->lifetime());
 
-	QObject::connect(name, &Ui::InputField::changed, [=] {
+	name->changes(
+	) | rpl::start_with_next([=] {
 		if (!nameEditing->settingDefault) {
 			nameEditing->custom = true;
 		}
-	});
+	}, name->lifetime());
 	const auto updateDefaultTitle = [=](const Data::ChatFilter &filter) {
 		if (nameEditing->custom) {
 			return;
@@ -662,7 +667,7 @@ void EditFilterBox(
 		content,
 		tr::lng_filters_add_chats(),
 		st::settingsButtonActive,
-		{ &st::settingsIconAdd, 0, IconType::Round, &st::windowBgActive });
+		{ &st::settingsIconAdd, IconType::Round, &st::windowBgActive });
 
 	const auto include = SetupChatsPreview(
 		content,
@@ -689,7 +694,7 @@ void EditFilterBox(
 		excludeInner,
 		tr::lng_filters_remove_chats(),
 		st::settingsButtonActive,
-		{ &st::settingsIconRemove, 0, IconType::Round, &st::windowBgActive });
+		{ &st::settingsIconRemove, IconType::Round, &st::windowBgActive });
 
 	const auto exclude = SetupChatsPreview(
 		excludeInner,
@@ -742,13 +747,13 @@ void EditFilterBox(
 		state->hasLinks.value() | rpl::map(!rpl::mappers::_1),
 		tr::lng_filters_link_create(),
 		st::settingsButtonActive,
-		{ &st::settingsFolderShareIcon, 0, IconType::Simple });
+		{ &st::settingsFolderShareIcon, IconType::Simple });
 	const auto addLink = AddToggledButton(
 		content,
 		state->hasLinks.value(),
 		tr::lng_group_invite_add(),
 		st::settingsButtonActive,
-		{ &st::settingsIconAdd, 0, IconType::Round, &st::windowBgActive });
+		{ &st::settingsIconAdd, IconType::Round, &st::windowBgActive });
 
 	SetupFilterLinks(
 		content,

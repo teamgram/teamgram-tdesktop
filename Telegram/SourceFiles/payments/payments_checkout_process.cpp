@@ -246,17 +246,6 @@ CheckoutProcess::CheckoutProcess(
 	showForm();
 	_panel->toggleProgress(true);
 
-	style::PaletteChanged(
-	) | rpl::filter([=] {
-		return !_themeUpdateScheduled;
-	}) | rpl::start_with_next([=] {
-		_themeUpdateScheduled = true;
-		crl::on_main(this, [=] {
-			_themeUpdateScheduled = false;
-			_panel->updateThemeParams(Window::Theme::WebViewParams());
-		});
-	}, _panel->lifetime());
-
 	if (mode == Mode::Payment) {
 		_session->api().cloudPassword().state(
 		) | rpl::start_with_next([=](const Core::CloudPasswordState &state) {
@@ -540,10 +529,12 @@ void CheckoutProcess::panelSubmit() {
 	} else if (!method.newCredentials
 		&& method.savedCredentialsIndex >= method.savedCredentials.size()) {
 		editPaymentMethod();
-	} else if (invoice.isRecurring && !_form->details().termsAccepted) {
+	} else if (!invoice.termsUrl.isEmpty()
+		&& !_form->details().termsAccepted) {
 		_panel->requestTermsAcceptance(
 			_form->details().termsBotUsername,
-			invoice.recurringTermsUrl);
+			invoice.termsUrl,
+			invoice.isRecurring);
 	} else {
 		RegisterPaymentStart(this, { _form->invoice().cover.title });
 		_submitState = SubmitState::Finishing;
@@ -844,6 +835,10 @@ void CheckoutProcess::performInitialSilentValidation() {
 
 QString CheckoutProcess::panelWebviewDataPath() {
 	return _session->domain().local().webviewDataPath();
+}
+
+Webview::ThemeParams CheckoutProcess::panelWebviewThemeParams() {
+	return Window::Theme::WebViewParams();
 }
 
 } // namespace Payments

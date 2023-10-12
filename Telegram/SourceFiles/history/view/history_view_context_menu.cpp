@@ -830,7 +830,9 @@ void AddDownloadFilesAction(
 		not_null<Ui::PopupMenu*> menu,
 		const ContextMenuRequest &request,
 		not_null<ListWidget*> list) {
-	if (!request.overSelection || request.selectedItems.empty()) {
+	if (!request.overSelection
+		|| request.selectedItems.empty()
+		|| list->hasCopyRestrictionForSelected()) {
 		return;
 	}
 	Menu::AddDownloadFilesAction(
@@ -1199,7 +1201,7 @@ void AddPollActions(
 				.confirmText = tr::lng_polls_stop_sure(),
 				.cancelText = tr::lng_cancel(),
 			}));
-		}, &st::menuIconStopPoll);
+		}, &st::menuIconRemove);
 	}
 }
 

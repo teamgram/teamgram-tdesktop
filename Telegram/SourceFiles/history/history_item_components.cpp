@@ -43,6 +43,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "api/api_bot.h"
 #include "styles/style_widgets.h"
 #include "styles/style_chat.h"
+#include "styles/style_dialogs.h" // dialogsMiniReplyStory.
 
 #include <QtGui/QGuiApplication>
 
@@ -460,7 +461,14 @@ void HistoryMessageReply::updateName(
 			w += st::msgServiceFont->spacew + replyToVia->maxWidth;
 		}
 
-		maxReplyWidth = previewSkip + qMax(w, qMin(replyToText.maxWidth(), int32(st::maxSignatureSize)));
+		maxReplyWidth = previewSkip
+			+ std::max(
+				w,
+				std::min(replyToText.maxWidth(), st::maxSignatureSize))
+			+ (storyReply
+				? (st::dialogsMiniReplyStory.skipText
+					+ st::dialogsMiniReplyStory.icon.icon.width())
+				: 0);
 	} else {
 		maxReplyWidth = st::msgDateFont->width(statePhrase());
 	}
@@ -508,6 +516,8 @@ void HistoryMessageReply::paint(
 	const auto stm = context.messageStyle();
 
 	{
+		const auto opacity = p.opacity();
+		const auto outerWidth = w + 2 * x;
 		const auto &bar = !inBubble
 			? st->msgImgReplyBarColor()
 			: replyToColorKey
@@ -518,8 +528,22 @@ void HistoryMessageReply::paint(
 			y + st::msgReplyPadding.top() + st::msgReplyBarPos.y(),
 			st::msgReplyBarSize.width(),
 			st::msgReplyBarSize.height(),
-			w + 2 * x);
-		const auto opacity = p.opacity();
+			outerWidth);
+
+		if (ripple.animation) {
+			const auto colorOverride = &stm->msgWaveformInactive->c;
+			p.setOpacity(st::historyPollRippleOpacity);
+			ripple.animation->paint(
+				p,
+				x - st::msgReplyPadding.left(),
+				y,
+				outerWidth,
+				colorOverride);
+			if (ripple.animation->empty()) {
+				ripple.animation.reset();
+			}
+		}
+
 		p.setOpacity(opacity * kBarAlpha);
 		p.fillRect(rbar, bar);
 		p.setOpacity(opacity);
@@ -580,20 +604,33 @@ void HistoryMessageReply::paint(
 					? stm->historyTextFg
 					: st->msgImgReplyBarColor());
 				holder->prepareCustomEmojiPaint(p, context, replyToText);
+				auto replyToTextPosition = QPoint(
+					x + st::msgReplyBarSkip + previewSkip,
+					y + st::msgReplyPadding.top() + st::msgServiceNameFont->height);
+				const auto replyToTextPalette = &(inBubble
+					? stm->replyTextPalette
+					: st->imgReplyTextPalette());
+				if (storyReply) {
+					st::dialogsMiniReplyStory.icon.icon.paint(
+						p,
+						replyToTextPosition,
+						w - st::msgReplyBarSkip - previewSkip,
+						replyToTextPalette->linkFg->c);
+					replyToTextPosition += QPoint(
+						st::dialogsMiniReplyStory.skipText
+							+ st::dialogsMiniReplyStory.icon.icon.width(),
+						0);
+				}
 				replyToText.draw(p, {
-					.position = QPoint(
-						x + st::msgReplyBarSkip + previewSkip,
-						y + st::msgReplyPadding.top() + st::msgServiceNameFont->height),
+					.position = replyToTextPosition,
 					.availableWidth = w - st::msgReplyBarSkip - previewSkip,
-					.palette = &(inBubble
-						? stm->replyTextPalette
-						: st->imgReplyTextPalette()),
+					.palette = replyToTextPalette,
 					.spoiler = Ui::Text::DefaultSpoilerCache(),
 					.now = context.now,
 					.pausedEmoji = (context.paused
 						|| On(PowerSaving::kEmojiChat)),
 					.pausedSpoiler = pausedSpoiler,
-					.elisionLines = 1,
+					.elisionOneLine = true,
 				});
 				p.setTextPalette(stm->textPalette);
 			}
@@ -1052,7 +1089,7 @@ void ReplyKeyboard::Style::paintButton(
 		|| button.type == HistoryMessageMarkupButton::Type::Game) {
 		if (const auto data = button.link->getButton()) {
 			if (data->requestId) {
-				paintButtonLoading(p, st, rect);
+				paintButtonLoading(p, st, rect, outerWidth, rounding);
 			}
 		}
 	}
