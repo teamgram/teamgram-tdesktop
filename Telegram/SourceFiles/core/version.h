@@ -20,9 +20,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 // used in Updater.cpp and Setup.iss for Windows
 constexpr auto AppId = "{53F49750-6209-4FBF-9CA8-7A333C87D1ED}"_cs;
 constexpr auto AppNameOld = "Teamgram Win (Unofficial)"_cs;
-constexpr auto AppName = "Telegram Desktop"_cs;
+constexpr auto AppName = "Teamgram Desktop"_cs;
 constexpr auto AppFile = "Teamgram"_cs;
-constexpr auto AppVersion = 5001008;
-constexpr auto AppVersionStr = "5.1.8";
-constexpr auto AppBetaVersion = true;
+constexpr auto AppVersion = 5006000;
+constexpr auto AppVersionStr = "5.6";
+constexpr auto AppBetaVersion = false;
 constexpr auto AppAlphaVersion = TDESKTOP_ALPHA_VERSION;

@@ -220,6 +220,8 @@ QByteArray Settings::serialize() const {
 		+ Serialize::bytearraySize(ivPosition)
 		+ Serialize::stringSize(noWarningExtensions)
 		+ Serialize::stringSize(_customFontFamily)
+		+ sizeof(qint32) * 3
+		+ Serialize::bytearraySize(_tonsiteStorageToken)
 		+ sizeof(qint32);
 
 	auto result = QByteArray();
@@ -257,7 +259,7 @@ QByteArray Settings::serialize() const {
 		}
 		stream
 			<< qint32(_sendFilesWay.serialize())
-			<< qint32(_sendSubmitWay)
+			<< qint32(_sendSubmitWay.current())
 			<< qint32(_includeMutedCounter ? 1 : 0)
 			<< qint32(_countUnreadMessages ? 1 : 0)
 			<< qint32(1) // legacy exe launch warning
@@ -371,7 +373,11 @@ QByteArray Settings::serialize() const {
 			<< qint32(std::clamp(
 				qRound(_dialogsNoChatWidthRatio.current() * 1000000),
 				0,
-				1000000));
+				1000000))
+			<< qint32(_systemUnlockEnabled ? 1 : 0)
+			<< qint32(!_weatherInCelsius ? 0 : *_weatherInCelsius ? 1 : 2)
+			<< _tonsiteStorageToken
+			<< qint32(_includeMutedCounterFolders ? 1 : 0);
 	}
 
 	Ensures(result.size() == size);
@@ -417,8 +423,9 @@ void Settings::addFromSerialized(const QByteArray &serialized) {
 	qint32 soundOverridesCount = 0;
 	base::flat_map<QString, QString> soundOverrides;
 	qint32 sendFilesWay = _sendFilesWay.serialize();
-	qint32 sendSubmitWay = static_cast<qint32>(_sendSubmitWay);
+	qint32 sendSubmitWay = static_cast<qint32>(_sendSubmitWay.current());
 	qint32 includeMutedCounter = _includeMutedCounter ? 1 : 0;
+	qint32 includeMutedCounterFolders = _includeMutedCounterFolders ? 1 : 0;
 	qint32 countUnreadMessages = _countUnreadMessages ? 1 : 0;
 	std::optional<QString> noWarningExtensions;
 	qint32 legacyExeLaunchWarning = 1;
@@ -491,6 +498,9 @@ void Settings::addFromSerialized(const QByteArray &serialized) {
 	qint32 ttlVoiceClickTooltipHidden = _ttlVoiceClickTooltipHidden.current() ? 1 : 0;
 	QByteArray ivPosition;
 	QString customFontFamily = _customFontFamily;
+	qint32 systemUnlockEnabled = _systemUnlockEnabled ? 1 : 0;
+	qint32 weatherInCelsius = !_weatherInCelsius ? 0 : *_weatherInCelsius ? 1 : 2;
+	QByteArray tonsiteStorageToken = _tonsiteStorageToken;
 
 	stream >> themesAccentColors;
 	if (!stream.atEnd()) {
@@ -788,6 +798,18 @@ void Settings::addFromSerialized(const QByteArray &serialized) {
 			0.,
 			1.);
 	}
+	if (!stream.atEnd()) {
+		stream >> systemUnlockEnabled;
+	}
+	if (!stream.atEnd()) {
+		stream >> weatherInCelsius;
+	}
+	if (!stream.atEnd()) {
+		stream >> tonsiteStorageToken;
+	}
+	if (!stream.atEnd()) {
+		stream >> includeMutedCounterFolders;
+	}
 	if (stream.status() != QDataStream::Ok) {
 		LOG(("App Error: "
 			"Bad data for Core::Settings::constructFromSerialized()"));
@@ -828,6 +850,7 @@ void Settings::addFromSerialized(const QByteArray &serialized) {
 	case ScreenCorner::BottomLeft: _notificationsCorner = uncheckedNotificationsCorner; break;
 	}
 	_includeMutedCounter = (includeMutedCounter == 1);
+	_includeMutedCounterFolders = (includeMutedCounterFolders == 1);
 	_countUnreadMessages = (countUnreadMessages == 1);
 	_notifyAboutPinned = (notifyAboutPinned == 1);
 	_autoLock = autoLock;
@@ -848,8 +871,6 @@ void Settings::addFromSerialized(const QByteArray &serialized) {
 	case Ui::InputSubmitSettings::Enter:
 	case Ui::InputSubmitSettings::CtrlEnter: _sendSubmitWay = uncheckedSendSubmitWay; break;
 	}
-	_includeMutedCounter = (includeMutedCounter == 1);
-	_countUnreadMessages = (countUnreadMessages == 1);
 	if (noWarningExtensions) {
 		const auto list = noWarningExtensions->mid(0, 10240)
 			.split(' ', Qt::SkipEmptyParts)
@@ -995,6 +1016,11 @@ void Settings::addFromSerialized(const QByteArray &serialized) {
 		_ivPosition = Deserialize(ivPosition);
 	}
 	_customFontFamily = customFontFamily;
+	_systemUnlockEnabled = (systemUnlockEnabled == 1);
+	_weatherInCelsius = !weatherInCelsius
+		? std::optional<bool>()
+		: (weatherInCelsius == 1);
+	_tonsiteStorageToken = tonsiteStorageToken;
 }
 
 QString Settings::getSoundPath(const QString &key) const {
@@ -1324,6 +1350,7 @@ void Settings::resetOnLastLogout() {
 	//_notificationsCount = 3;
 	//_notificationsCorner = ScreenCorner::BottomRight;
 	_includeMutedCounter = true;
+	_includeMutedCounterFolders = true;
 	_countUnreadMessages = true;
 	_notifyAboutPinned = true;
 	//_autoLock = 3600;

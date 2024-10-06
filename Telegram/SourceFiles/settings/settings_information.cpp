@@ -24,6 +24,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/painter.h"
 #include "ui/vertical_list.h"
 #include "ui/unread_badge_paint.h"
+#include "ui/ui_utility.h"
 #include "core/application.h"
 #include "core/click_handler_types.h"
 #include "core/core_settings.h"
@@ -983,13 +984,13 @@ void AccountsList::rebuild() {
 						_reorder->finishReordering();
 						if (newWindow) {
 							_closeRequests.fire({});
-							Core::App().ensureSeparateWindowForAccount(
-								account);
+							Core::App().ensureSeparateWindowFor(account);
 						}
 						Core::App().domain().maybeActivate(account);
 					}
 				};
-				if (const auto window = Core::App().separateWindowForAccount(account)) {
+				if (const auto window = Core::App().separateWindowFor(
+						account)) {
 					_closeRequests.fire({});
 					window->activate();
 				} else {

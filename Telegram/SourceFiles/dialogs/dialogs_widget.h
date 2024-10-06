@@ -57,6 +57,7 @@ namespace Window {
 class SessionController;
 class ConnectionState;
 struct SectionShow;
+struct SeparateId;
 } // namespace Window
 
 namespace Dialogs::Stories {
@@ -79,6 +80,7 @@ enum class SearchRequestDelay : uchar;
 class Suggestions;
 class ChatSearchIn;
 enum class ChatSearchTab : uchar;
+enum class HashOrCashtag : uchar;
 
 class Widget final : public Window::AbstractSectionWidget {
 public:
@@ -212,6 +214,7 @@ private:
 	void refreshTopBars();
 	void showSearchInTopBar(anim::type animated);
 	void checkUpdateStatus();
+	void openBotMainApp(not_null<UserData*> bot);
 	void changeOpenedSubsection(
 		FnMut<void()> change,
 		bool fromRight,
@@ -314,7 +317,7 @@ private:
 	object_ptr<Ui::JumpDownButton> _scrollToTop;
 	bool _scrollToTopIsShown = false;
 	bool _forumSearchRequested = false;
-	bool _searchingHashtag = false;
+	HashOrCashtag _searchHashOrCashtag = {};
 
 	Data::Folder *_openedFolder = nullptr;
 	Data::Forum *_openedForum = nullptr;

@@ -87,6 +87,7 @@ namespace {
 
 constexpr auto kHashtagResultsLimit = 5;
 constexpr auto kStartReorderThreshold = 30;
+constexpr auto kQueryPreviewLimit = 32;
 
 [[nodiscard]] int FixedOnTopDialogsCount(not_null<Dialogs::IndexedList*> list) {
 	auto result = 0;
@@ -145,11 +146,14 @@ constexpr auto kStartReorderThreshold = 30;
 			tr::now,
 			Ui::Text::Bold));
 		if (!trimmed.isEmpty()) {
+			const auto preview = (trimmed.size() > kQueryPreviewLimit + 3)
+				? (trimmed.mid(0, kQueryPreviewLimit) + Ui::kQEllipsis)
+				: trimmed;
 			text.append("\n").append(
 				tr::lng_search_tab_no_results_text(
 					tr::now,
 					lt_query,
-					trimmed));
+					trimmed.mid(0, kQueryPreviewLimit)));
 			if (hashtag) {
 				text.append("\n").append(
 					tr::lng_search_tab_no_results_retry(tr::now));
@@ -2655,7 +2659,7 @@ void InnerWidget::applySearchState(SearchState state) {
 		onHashtagFilterUpdate(QStringView());
 	}
 	_searchState = std::move(state);
-	_searchingHashtag = IsHashtagSearchQuery(_searchState.query);
+	_searchHashOrCashtag = IsHashOrCashtagSearchQuery(_searchState.query);
 
 	updateSearchIn();
 	moveSearchIn();
@@ -3332,7 +3336,8 @@ auto InnerWidget::searchTagsChanges() const
 }
 
 void InnerWidget::updateSearchIn() {
-	if (!_searchState.inChat && !_searchingHashtag) {
+	if (!_searchState.inChat
+		&& _searchHashOrCashtag == HashOrCashtag::None) {
 		_searchIn = nullptr;
 		return;
 	} else if (!_searchIn) {
@@ -3381,7 +3386,7 @@ void InnerWidget::updateSearchIn() {
 		? Ui::MakeUserpicThumbnail(sublist->peer())
 		: nullptr;
 	const auto myIcon = Ui::MakeIconThumbnail(st::menuIconChats);
-	const auto publicIcon = _searchingHashtag
+	const auto publicIcon = (_searchHashOrCashtag != HashOrCashtag::None)
 		? Ui::MakeIconThumbnail(st::menuIconChannel)
 		: nullptr;
 	const auto peerTabType = (peer && peer->isBroadcast())
@@ -3675,7 +3680,7 @@ void InnerWidget::preloadRowsData() {
 	}
 }
 
-bool InnerWidget::chooseCollapsedRow() {
+bool InnerWidget::chooseCollapsedRow(Qt::KeyboardModifiers modifiers) {
 	if (_state != WidgetState::Default) {
 		return false;
 	} else if ((_collapsedSelected < 0)
@@ -3689,6 +3694,9 @@ bool InnerWidget::chooseCollapsedRow() {
 }
 
 void InnerWidget::switchToFilter(FilterId filterId) {
+	if (_controller->windowId().type != Window::SeparateType::Primary) {
+		return;
+	}
 	const auto &list = session().data().chatsFilters().list();
 	const auto filterIt = filterId
 		? ranges::find(list, filterId, &Data::ChatFilter::id)
@@ -3768,7 +3776,15 @@ bool InnerWidget::chooseHashtag() {
 
 ChosenRow InnerWidget::computeChosenRow() const {
 	if (_state == WidgetState::Default) {
-		if (_selected) {
+		if ((_collapsedSelected >= 0)
+			&& (_collapsedSelected < _collapsedRows.size())) {
+			const auto &row = _collapsedRows[_collapsedSelected];
+			Assert(row->folder != nullptr);
+			return {
+				.key = row->folder,
+				.message = Data::UnreadMessagePosition,
+			};
+		} else if (_selected) {
 			return {
 				.key = _selected->key(),
 				.message = Data::UnreadMessagePosition,
@@ -3802,7 +3818,9 @@ ChosenRow InnerWidget::computeChosenRow() const {
 
 bool InnerWidget::isUserpicPress() const {
 	return  (_lastRowLocalMouseX >= 0)
-		&& (_lastRowLocalMouseX < _st->nameLeft);
+		&& (_lastRowLocalMouseX < _st->nameLeft)
+		&& (_collapsedSelected < 0
+			|| _collapsedSelected >= _collapsedRows.size());
 }
 
 bool InnerWidget::isUserpicPressOnWide() const {
@@ -3812,9 +3830,7 @@ bool InnerWidget::isUserpicPressOnWide() const {
 bool InnerWidget::chooseRow(
 		Qt::KeyboardModifiers modifiers,
 		MsgId pressedTopicRootId) {
-	if (chooseCollapsedRow()) {
-		return true;
-	} else if (chooseHashtag()) {
+	if (chooseHashtag()) {
 		return true;
 	}
 	const auto modifyChosenRow = [&](

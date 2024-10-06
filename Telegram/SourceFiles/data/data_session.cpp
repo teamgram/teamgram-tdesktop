@@ -126,30 +126,6 @@ void CheckForSwitchInlineButton(not_null<HistoryItem*> item) {
 	}
 }
 
-// We should get a full restriction in "{full}: {reason}" format and we
-// need to find an "-all" tag in {full}, otherwise ignore this restriction.
-std::vector<UnavailableReason> ExtractUnavailableReasons(
-		const QVector<MTPRestrictionReason> &restrictions) {
-	return ranges::views::all(
-		restrictions
-	) | ranges::views::filter([](const MTPRestrictionReason &restriction) {
-		return restriction.match([&](const MTPDrestrictionReason &data) {
-			const auto platform = qs(data.vplatform());
-			return false
-#ifdef OS_MAC_STORE
-				|| (platform == u"ios"_q)
-#elif defined OS_WIN_STORE // OS_MAC_STORE
-				|| (platform == u"ms"_q)
-#endif // OS_MAC_STORE || OS_WIN_STORE
-				|| (platform == u"all"_q);
-		});
-	}) | ranges::views::transform([](const MTPRestrictionReason &restriction) {
-		return restriction.match([&](const MTPDrestrictionReason &data) {
-			return UnavailableReason{ qs(data.vreason()), qs(data.vtext()) };
-		});
-	}) | ranges::to_vector;
-}
-
 [[nodiscard]] InlineImageLocation FindInlineThumbnail(
 		const QVector<MTPPhotoSize> &sizes) {
 	const auto i = ranges::find(
@@ -335,6 +311,22 @@ Session::Session(not_null<Main::Session*> session)
 
 		_stories->loadMore(Data::StorySourcesList::NotHidden);
 	});
+
+	session->appConfig().ignoredRestrictionReasonsChanges(
+	) | rpl::start_with_next([=](std::vector<QString> &&changed) {
+		auto refresh = std::vector<not_null<const HistoryItem*>>();
+		for (const auto &[item, reasons] : _possiblyRestricted) {
+			for (const auto &reason : changed) {
+				if (reasons.contains(reason)) {
+					refresh.push_back(item);
+					break;
+				}
+			}
+		}
+		for (const auto &item : refresh) {
+			requestItemViewRefresh(item);
+		}
+	}, _lifetime);
 }
 
 void Session::subscribeForTopicRepliesLists() {
@@ -606,12 +598,8 @@ not_null<UserData*> Session::processUser(const MTPUser &data) {
 				result->input = MTP_inputPeerUser(data.vid(), MTP_long(result->accessHash()));
 				result->inputUser = MTP_inputUser(data.vid(), MTP_long(result->accessHash()));
 			}
-			if (const auto restriction = data.vrestriction_reason()) {
-				result->setUnavailableReasons(
-					ExtractUnavailableReasons(restriction->v));
-			} else {
-				result->setUnavailableReasons({});
-			}
+			result->setUnavailableReasons(Data::UnavailableReason::Extract(
+				data.vrestriction_reason()));
 		}
 		if (data.is_deleted()) {
 			if (!result->phone().isEmpty()) {
@@ -721,6 +709,8 @@ not_null<UserData*> Session::processUser(const MTPUser &data) {
 				result->botInfo->supportsAttachMenu = data.is_bot_attach_menu();
 				result->botInfo->supportsBusiness = data.is_bot_business();
 				result->botInfo->canEditInformation = data.is_bot_can_edit();
+				result->botInfo->activeUsers = data.vbot_active_users().value_or_empty();
+				result->botInfo->hasMainApp = data.is_bot_has_main_app();
 			} else {
 				result->setBotInfoVersion(-1);
 			}
@@ -878,6 +868,8 @@ not_null<PeerData*> Session::processChat(const MTPChat &data) {
 		const auto wasCallNotEmpty = Data::ChannelHasActiveCall(channel);
 
 		channel->updateLevelHint(data.vlevel().value_or_empty());
+		channel->updateSubscriptionUntilDate(
+			data.vsubscription_until_date().value_or_empty());
 		if (const auto count = data.vparticipants_count()) {
 			channel->setMembersCount(count->v);
 		}
@@ -911,12 +903,8 @@ not_null<PeerData*> Session::processChat(const MTPChat &data) {
 			channel->setAccessHash(
 				data.vaccess_hash().value_or(channel->access));
 			channel->date = data.vdate().v;
-			if (const auto restriction = data.vrestriction_reason()) {
-				channel->setUnavailableReasons(
-					ExtractUnavailableReasons(restriction->v));
-			} else {
-				channel->setUnavailableReasons({});
-			}
+			channel->setUnavailableReasons(Data::UnavailableReason::Extract(
+				data.vrestriction_reason()));
 		}
 
 		{
@@ -942,6 +930,7 @@ not_null<PeerData*> Session::processChat(const MTPChat &data) {
 			| Flag::Gigagroup
 			| Flag::Username
 			| Flag::Signatures
+			| Flag::SignatureProfiles
 			| Flag::HasLink
 			| Flag::SlowmodeEnabled
 			| Flag::CallActive
@@ -970,6 +959,7 @@ not_null<PeerData*> Session::processChat(const MTPChat &data) {
 			| (data.is_gigagroup() ? Flag::Gigagroup : Flag())
 			| (hasUsername ? Flag::Username : Flag())
 			| (data.is_signatures() ? Flag::Signatures : Flag())
+			| (data.is_signature_profiles() ? Flag::SignatureProfiles : Flag())
 			| (data.is_has_link() ? Flag::HasLink : Flag())
 			| (data.is_slowmode_enabled() ? Flag::SlowmodeEnabled : Flag())
 			| (data.is_call_active() ? Flag::CallActive : Flag())
@@ -1281,24 +1271,31 @@ History *Session::historyLoaded(const PeerData *peer) {
 }
 
 void Session::deleteConversationLocally(not_null<PeerData*> peer) {
-	const auto history = historyLoaded(peer);
-	if (history) {
+	const auto markLeft = [&] {
+		if (const auto channel = peer->asMegagroup()) {
+			channel->addFlags(ChannelDataFlag::Left);
+			if (const auto from = channel->getMigrateFromChat()) {
+				if (const auto migrated = historyLoaded(from)) {
+					migrated->updateChatListExistence();
+				}
+			}
+		}
+	};
+	if (const auto history = historyLoaded(peer)) {
 		if (history->folderKnown()) {
 			setChatPinned(history, FilterId(), false);
 		}
 		removeChatListEntry(history);
 		history->clearFolder();
+
+		// We want to mark the channel as left before unloading the history,
+		// otherwise some parts of updating may return us to the chats list.
+		markLeft();
 		history->clear(peer->isChannel()
 			? History::ClearType::Unload
 			: History::ClearType::DeleteChat);
-	}
-	if (const auto channel = peer->asMegagroup()) {
-		channel->addFlags(ChannelDataFlag::Left);
-		if (const auto from = channel->getMigrateFromChat()) {
-			if (const auto migrated = historyLoaded(from)) {
-				migrated->updateChatListExistence();
-			}
-		}
+	} else {
+		markLeft();
 	}
 }
 
@@ -1648,6 +1645,14 @@ rpl::producer<not_null<HistoryItem*>> Session::newItemAdded() const {
 	return _newItemAdded.events();
 }
 
+void Session::notifyGiftUpdate(GiftUpdate &&update) {
+	_giftUpdates.fire(std::move(update));
+}
+
+rpl::producer<GiftUpdate> Session::giftUpdates() const {
+	return _giftUpdates.events();
+}
+
 HistoryItem *Session::changeMessageId(PeerId peerId, MsgId wasId, MsgId nowId) {
 	const auto list = messagesListForInsert(peerId);
 	const auto i = list->find(wasId);
@@ -1799,7 +1804,7 @@ rpl::producer<not_null<ViewElement*>> Session::viewResizeRequest() const {
 	return _viewResizeRequest.events();
 }
 
-void Session::requestItemViewRefresh(not_null<HistoryItem*> item) {
+void Session::requestItemViewRefresh(not_null<const HistoryItem*> item) {
 	if (const auto view = item->mainView()) {
 		notifyHistoryChangeDelayed(item->history());
 		view->refreshInBlock();
@@ -1807,7 +1812,7 @@ void Session::requestItemViewRefresh(not_null<HistoryItem*> item) {
 	_itemViewRefreshRequest.fire_copy(item);
 }
 
-rpl::producer<not_null<HistoryItem*>> Session::itemViewRefreshRequest() const {
+rpl::producer<not_null<const HistoryItem*>> Session::itemViewRefreshRequest() const {
 	return _itemViewRefreshRequest.events();
 }
 
@@ -1830,6 +1835,31 @@ void Session::requestItemTextRefresh(not_null<HistoryItem*> item) {
 		call(group->items.front());
 	} else {
 		call(item);
+	}
+}
+
+void Session::registerRestricted(
+		not_null<const HistoryItem*> item,
+		const QString &reason) {
+	Expects(item->hasPossibleRestrictions());
+
+	_possiblyRestricted[item].emplace(reason);
+}
+
+void Session::registerRestricted(
+		not_null<const HistoryItem*> item,
+		const std::vector<UnavailableReason> &reasons) {
+	Expects(item->hasPossibleRestrictions());
+
+	auto &list = _possiblyRestricted[item];
+	if (list.empty()) {
+		auto &&simple = reasons
+			| ranges::views::transform(&UnavailableReason::reason);
+		list = { begin(simple), end(simple) };
+	} else {
+		for (const auto &reason : reasons) {
+			list.emplace(reason.reason);
+		}
 	}
 }
 
@@ -1878,6 +1908,14 @@ void Session::notifyViewRemoved(not_null<const ViewElement*> view) {
 
 rpl::producer<not_null<const ViewElement*>> Session::viewRemoved() const {
 	return _viewRemoved.events();
+}
+
+void Session::notifyViewPaidReactionSent(not_null<const ViewElement*> view) {
+	_viewPaidReactionSent.fire_copy(view);
+}
+
+rpl::producer<not_null<const ViewElement*>> Session::viewPaidReactionSent() const {
+	return _viewPaidReactionSent.events();
 }
 
 void Session::notifyHistoryUnloaded(not_null<const History*> history) {
@@ -2528,6 +2566,9 @@ void Session::unregisterMessage(not_null<HistoryItem*> item) {
 	const auto peerId = item->history()->peer->id;
 	const auto itemId = item->id;
 	_itemRemoved.fire_copy(item);
+	if (item->hasPossibleRestrictions()) {
+		_possiblyRestricted.remove(item);
+	}
 	session().changes().messageUpdated(
 		item,
 		Data::MessageUpdate::Flag::Destroyed);
@@ -3077,8 +3118,7 @@ void Session::photoApplyFields(
 		return;
 	}
 	photo->setRemoteLocation(dc, access, fileReference);
-	photo->date = date;
-	photo->setHasAttachedStickers(hasStickers);
+	photo->setFields(date, hasStickers);
 	photo->updateImages(
 		inlineThumbnailBytes,
 		small,
@@ -3327,6 +3367,22 @@ void Session::documentApplyFields(
 	if (dc != 0 && access != 0) {
 		document->setRemoteLocation(dc, access, fileReference);
 	}
+}
+
+not_null<DocumentData*> Session::venueIconDocument(const QString &icon) {
+	const auto i = _venueIcons.find(icon);
+	if (i != end(_venueIcons)) {
+		return i->second;
+	}
+	const auto result = documentFromWeb(MTP_webDocumentNoProxy(
+		MTP_string(u"https://ss3.4sqi.net/img/categories_v2/"_q
+			+ icon
+			+ u"_64.png"_q),
+		MTP_int(0),
+		MTP_string("image/png"),
+		MTP_vector<MTPDocumentAttribute>()), {}, {});
+	_venueIcons.emplace(icon, result);
+	return result;
 }
 
 not_null<WebPageData*> Session::webpage(WebPageId id) {
@@ -4518,7 +4574,8 @@ void Session::serviceNotification(
 			MTPVector<MTPUsername>(),
 			MTPint(), // stories_max_id
 			MTPPeerColor(), // color
-			MTPPeerColor())); // profile_color
+			MTPPeerColor(), // profile_color
+			MTPint())); // bot_active_users
 	}
 	const auto history = this->history(PeerData::kServiceNotificationsId);
 	const auto insert = [=] {
@@ -4683,16 +4740,16 @@ uint64 Session::wallpapersHash() const {
 	return _wallpapersHash;
 }
 
-MTP::DcId Session::statsDcId(not_null<ChannelData*> channel) {
-	const auto it = _channelStatsDcIds.find(channel);
-	return (it == end(_channelStatsDcIds)) ? MTP::DcId(0) : it->second;
+MTP::DcId Session::statsDcId(not_null<PeerData*> peer) {
+	const auto it = _peerStatsDcIds.find(peer);
+	return (it == end(_peerStatsDcIds)) ? MTP::DcId(0) : it->second;
 }
 
 void Session::applyStatsDcId(
-		not_null<ChannelData*> channel,
+		not_null<PeerData*> peer,
 		MTP::DcId dcId) {
-	if (dcId != channel->session().mainDcId()) {
-		_channelStatsDcIds[channel] = dcId;
+	if (dcId != peer->session().mainDcId()) {
+		_peerStatsDcIds[peer] = dcId;
 	}
 }
 

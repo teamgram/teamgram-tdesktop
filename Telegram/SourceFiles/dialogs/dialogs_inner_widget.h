@@ -62,6 +62,7 @@ class IndexedList;
 class SearchTags;
 class SearchEmpty;
 class ChatSearchIn;
+enum class HashOrCashtag : uchar;
 
 struct ChosenRow {
 	Key key;
@@ -251,7 +252,7 @@ private:
 	void repaintCollapsedFolderRow(not_null<Data::Folder*> folder);
 	void refreshWithCollapsedRows(bool toTop = false);
 	bool needCollapsedRowsRefresh() const;
-	bool chooseCollapsedRow();
+	bool chooseCollapsedRow(Qt::KeyboardModifiers modifiers);
 	void switchToFilter(FilterId filterId);
 	bool chooseHashtag();
 	ChosenRow computeChosenRow() const;
@@ -514,7 +515,7 @@ private:
 	Ui::DraggingScrollManager _draggingScroll;
 
 	SearchState _searchState;
-	bool _searchingHashtag = false;
+	HashOrCashtag _searchHashOrCashtag = {};
 	History *_searchInMigrated = nullptr;
 	PeerData *_searchFromShown = nullptr;
 	Ui::Text::String _searchFromUserText;

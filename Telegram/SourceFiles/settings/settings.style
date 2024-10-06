@@ -95,6 +95,7 @@ settingsPremiumIconTags: icon {{ "settings/premium/tags", settingsIconFg }};
 settingsPremiumIconLastSeen: icon {{ "settings/premium/lastseen", settingsIconFg }};
 settingsPremiumIconPrivacy: icon {{ "settings/premium/privacy", settingsIconFg }};
 settingsPremiumIconBusiness: icon {{ "settings/premium/market", settingsIconFg }};
+settingsPremiumIconEffects: icon {{ "settings/premium/effects", settingsIconFg }};
 
 settingsStoriesIconOrder: icon {{ "settings/premium/stories_order", premiumButtonBg1 }};
 settingsStoriesIconStealth: icon {{ "menu/stealth", premiumButtonBg1 }};
@@ -175,7 +176,7 @@ settingLocalPasscodeInputField: InputField(defaultInputField) {
 settingLocalPasscodeDescription: FlatLabel(changePhoneDescription) {
 	minWidth: 256px;
 }
-settingLocalPasscodeDescriptionHeight: 52px;
+settingLocalPasscodeDescriptionHeight: 53px;
 settingLocalPasscodeError: FlatLabel(changePhoneError) {
 	minWidth: 256px;
 }
@@ -530,7 +531,7 @@ filterInviteBox: Box(defaultBox) {
 	button: RoundButton(defaultActiveButton) {
 		height: 42px;
 		textTop: 12px;
-		font: font(13px semibold);
+		style: semiboldTextStyle;
 	}
 }
 filterInviteButtonStyle: TextStyle(defaultTextStyle) {
@@ -559,9 +560,9 @@ filterLinkPreviewRadius: 13px;
 filterLinkPreviewTop: 30px;
 filterLinkPreviewColumn: 65px;
 filterLinkPreviewAllBottom: 18px;
-filterLinkPreviewAllTop: 17px;
+filterLinkPreviewAllTop: 15px;
 filterLinkPreviewMyBottom: 74px;
-filterLinkPreviewMyTop: 73px;
+filterLinkPreviewMyTop: 71px;
 filterLinkPreviewChatSize: 36px;
 filterLinkPreviewChatSkip: 10px;
 filterLinkPreviewBadgeLeft: 40px;
