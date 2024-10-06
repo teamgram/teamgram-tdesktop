@@ -1020,12 +1020,15 @@ mac:
         -D WITH_SvtEnc=OFF \\
         -D WITH_RAV1E=OFF \\
         -D WITH_DAV1D=ON \\
+        -D DAV1D_INCLUDE_DIR=USED_PREFIX/include/ \\
+        -D DAV1D_LIBRARY=$USED_PREFIX/lib/libdav1d.a \\
         -D WITH_LIBDE265=ON \\
         -D LIBDE265_INCLUDE_DIR=$USED_PREFIX/include/ \\
         -D LIBDE265_LIBRARY=$USED_PREFIX/lib/libde265.a \\
         -D LIBSHARPYUV_INCLUDE_DIR=$USED_PREFIX/include/webp/ \\
         -D LIBSHARPYUV_LIBRARY=$USED_PREFIX/lib/libsharpyuv.a \\
-        -D WITH_EXAMPLES=OFF
+        -D WITH_EXAMPLES=OFF \\
+        -D WITH_GDK_PIXBUF=OFF
     cmake --build . --config MinSizeRel $MAKE_THREADS_CNT
     cmake --install . --config MinSizeRel
 """)
