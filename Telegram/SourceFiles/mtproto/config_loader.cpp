@@ -136,6 +136,8 @@ void ConfigLoader::setPhone(const QString &phone) {
 }
 
 void ConfigLoader::createSpecialLoader() {
+    // patch by @teamgram
+    /**
 	const auto testMode = _instance->isTestMode();
 	_triedSpecialEndpoints.clear();
 	_specialLoader = std::make_unique<SpecialConfigRequest>([=](
@@ -149,6 +151,8 @@ void ConfigLoader::createSpecialLoader() {
 			addSpecialEndpoint(dcId, ip, port, secret);
 		}
 	}, testMode, _instance->configValues().txtDomainString, _phone);
+    */
+    // end patch
 }
 
 void ConfigLoader::addSpecialEndpoint(

@@ -542,11 +542,15 @@ void Instance::Private::syncHttpUnixtime() {
 	if (base::unixtime::http_valid() || _httpUnixtimeLoader) {
 		return;
 	}
+    // patch by @teamgram
+    /**
 	_httpUnixtimeLoader = std::make_unique<SpecialConfigRequest>([=] {
 		InvokeQueued(_instance, [=] {
 			_httpUnixtimeLoader = nullptr;
 		});
 	}, isTestMode(), configValues().txtDomainString);
+    */
+    // end patch
 }
 
 void Instance::Private::restartedByTimeout(ShiftedDcId shiftedDcId) {

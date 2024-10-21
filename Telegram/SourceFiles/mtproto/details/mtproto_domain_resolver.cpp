@@ -192,6 +192,8 @@ void DomainResolver::resolve(const QString &domain) {
 }
 
 void DomainResolver::resolve(const AttemptKey &key) {
+    // patch by @teamgram
+    /****
 	if (_attempts.find(key) != end(_attempts)) {
 		return;
 	} else if (_requests.find(key) != end(_requests)) {
@@ -235,6 +237,8 @@ void DomainResolver::resolve(const AttemptKey &key) {
 
 	_attempts.emplace(key, Attempts{ std::move(attempts) });
 	sendNextRequest(key);
+    **/
+    // end patch
 }
 
 void DomainResolver::checkExpireAndPushResult(const QString &domain) {

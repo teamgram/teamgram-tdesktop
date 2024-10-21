@@ -28,8 +28,10 @@ struct BuiltInDc {
 	int port;
 };
 
+// patch by @teamgram
+/**
 const BuiltInDc kBuiltInDcs[] = {
-	{ 1, "149.154.175.50" , 443 },
+    { 1, "149.154.175.50" , 443 },
 	{ 2, "149.154.167.51" , 443 },
 	{ 2, "95.161.76.100"  , 443 },
 	{ 3, "149.154.175.100", 443 },
@@ -76,7 +78,35 @@ MIIBCgKCAQEA6LszBcC1LGzyr992NzE0ieY+BSaOW622Aa9Bd4ZHLl+TuFQ4lo4g\n\
 t6N/byY9Nw9p21Og3AoXSL2q/2IJ1WRUhebgAdGVMlV1fkuOQoEzR7EdpqtQD9Cs\n\
 5+bfo3Nhmcyvk5ftB0WkJ9z6bNZ7yxrP8wIDAQAB\n\
 -----END RSA PUBLIC KEY-----" };
+**/
+const BuiltInDc kBuiltInDcs[] = {
+    { 1, "43.155.11.190" , 10443 },
+};
 
+const BuiltInDc kBuiltInDcsTest[] = {
+    { 1, "43.155.11.190" , 10443 },
+};
+
+const char *kTestPublicRSAKeys[] = { "\
+-----BEGIN RSA PUBLIC KEY-----\n\
+MIIBCgKCAQEAvKLEOWTzt9Hn3/9Kdp/RdHcEhzmd8xXeLSpHIIzaXTLJDw8BhJy1\n\
+jR/iqeG8Je5yrtVabqMSkA6ltIpgylH///FojMsX1BHu4EPYOXQgB0qOi6kr08iX\n\
+ZIH9/iOPQOWDsL+Lt8gDG0xBy+sPe/2ZHdzKMjX6O9B4sOsxjFrk5qDoWDrioJor\n\
+AJ7eFAfPpOBf2w73ohXudSrJE0lbQ8pCWNpMY8cB9i8r+WBitcvouLDAvmtnTX7a\n\
+khoDzmKgpJBYliAY4qA73v7u5UIepE8QgV0jCOhxJCPubP8dg+/PlLLVKyxU5Cdi\n\
+QtZj2EMy4s9xlNKzX8XezE0MHEa6bQpnFwIDAQAB\n\
+-----END RSA PUBLIC KEY-----" };
+
+const char *kPublicRSAKeys[] = { "\
+-----BEGIN RSA PUBLIC KEY-----\n\
+MIIBCgKCAQEAvKLEOWTzt9Hn3/9Kdp/RdHcEhzmd8xXeLSpHIIzaXTLJDw8BhJy1\n\
+jR/iqeG8Je5yrtVabqMSkA6ltIpgylH///FojMsX1BHu4EPYOXQgB0qOi6kr08iX\n\
+ZIH9/iOPQOWDsL+Lt8gDG0xBy+sPe/2ZHdzKMjX6O9B4sOsxjFrk5qDoWDrioJor\n\
+AJ7eFAfPpOBf2w73ohXudSrJE0lbQ8pCWNpMY8cB9i8r+WBitcvouLDAvmtnTX7a\n\
+khoDzmKgpJBYliAY4qA73v7u5UIepE8QgV0jCOhxJCPubP8dg+/PlLLVKyxU5Cdi\n\
+QtZj2EMy4s9xlNKzX8XezE0MHEa6bQpnFwIDAQAB\n\
+-----END RSA PUBLIC KEY-----" };
+// end patch 
 } // namespace
 
 class DcOptions::WriteLocker {
@@ -181,6 +211,8 @@ void DcOptions::constructFromBuiltIn() {
 			).arg(entry.port));
 	}
 
+    // patch by @teamgram
+    /***
 	const auto listv6 = isTestMode()
 		? gsl::make_span(kBuiltInDcsIPv6Test)
 		: gsl::make_span(kBuiltInDcsIPv6).subspan(0);
@@ -193,6 +225,8 @@ void DcOptions::constructFromBuiltIn() {
 			).arg(entry.ip
 			).arg(entry.port));
 	}
+    **/
+    // end patch
 }
 
 void DcOptions::processFromList(
