@@ -2128,7 +2128,7 @@ std::unique_ptr<Ui::DropdownMenu> MakeAttachBotsMenu(
 		}, action->lifetime());
 		raw->addAction(std::move(action));
 	}
-	if (raw->actions().size() <= minimal) {
+	if (raw->actions().size() < minimal) {
 		return nullptr;
 	}
 	return result;
