@@ -2606,7 +2606,7 @@ std::unique_ptr<Ui::DropdownMenu> MakeAttachBotsMenu(
 	const auto onclick = ChatHelpers::ShowPanelOnClick();
 	if (!actions) {
 		return nullptr;
-	} else if (actions <= minimal && !onclick) {
+	} else if (actions < minimal && !onclick) {
 		return nullptr;
 	}
 	return result;
