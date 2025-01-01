@@ -22,6 +22,7 @@ DialogRow {
 	topicsSkipBig: pixels;
 	topicsHeight: pixels;
 	unreadMarkDiameter: pixels;
+	tagTop: pixels;
 }
 
 ThreeStateIcon {
@@ -89,6 +90,11 @@ defaultDialogRow: DialogRow {
 	textLeft: 68px;
 	textTop: 34px;
 }
+taggedDialogRow: DialogRow(defaultDialogRow) {
+	height: 72px;
+	textTop: 30px;
+	tagTop: 52px;
+}
 forumDialogRow: DialogRow(defaultDialogRow) {
 	height: 80px;
 	textTop: 32px;
@@ -96,6 +102,17 @@ forumDialogRow: DialogRow(defaultDialogRow) {
 	topicsSkipBig: 14px;
 	topicsHeight: 21px;
 }
+taggedForumDialogRow: DialogRow(forumDialogRow) {
+	height: 96px;
+	tagTop: 77px;
+}
+dialogRowFilterTagSkip : 4px;
+dialogRowFilterTagFont : font(10px);
+dialogRowOpenBotTextStyle: semiboldTextStyle;
+dialogRowOpenBotHeight: 20px;
+dialogRowOpenBotRight: 10px;
+dialogRowOpenBotTop: 32px;
+dialogRowOpenBotRecentTop: 28px;
 
 forumDialogJumpArrow: icon{{ "dialogs/dialogs_topic_arrow", dialogsTextFg }};
 forumDialogJumpArrowOver: icon{{ "dialogs/dialogs_topic_arrow", dialogsTextFgOver }};
@@ -222,9 +239,7 @@ dialogsMenuToggle: IconButton {
 
 	rippleAreaPosition: point(0px, 0px);
 	rippleAreaSize: 40px;
-	ripple: RippleAnimation(defaultRippleAnimation) {
-		color: windowBgOver;
-	}
+	ripple: defaultRippleAnimationBgOver;
 }
 dialogsMenuToggleUnread: icon {
 	{ "dialogs/dialogs_menu_unread", dialogsMenuIconFg },
@@ -674,7 +689,11 @@ recentPeersSpecialName: PeerListItem(recentPeersItem) {
 	namePosition: point(64px, 19px);
 }
 
+dialogsTabsScroll: ScrollArea(defaultScrollArea) {
+	barHidden: true;
+}
 dialogsSearchTabs: SettingsSlider(defaultSettingsSlider) {
+	padding: 8px;
 	height: 33px;
 	barTop: 30px;
 	barSkip: 0px;
@@ -692,7 +711,10 @@ dialogsSearchTabs: SettingsSlider(defaultSettingsSlider) {
 	rippleBgActive: lightButtonBgOver;
 	ripple: defaultRippleAnimation;
 }
-dialogsSearchTabsPadding: 8px;
+
+chatsFiltersTabs: SettingsSlider(dialogsSearchTabs) {
+	rippleBottomSkip: 0px;
+}
 
 dialogsStoriesList: DialogsStoriesList {
 	small: dialogsStories;
@@ -745,3 +767,7 @@ dialogsSearchTagPromoLeft: 6px;
 dialogsSearchTagPromoRight: 1px;
 dialogsSearchTagPromoSkip: 6px;
 
+dialogsPopularAppsPadding: margins(10px, 8px, 10px, 12px);
+dialogsPopularAppsAbout: FlatLabel(boxDividerLabel) {
+	minWidth: 128px;
+}

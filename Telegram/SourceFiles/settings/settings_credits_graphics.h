@@ -21,6 +21,7 @@ struct Boost;
 struct CreditsHistoryEntry;
 struct SubscriptionEntry;
 struct GiftCode;
+struct CreditTopupOption;
 } // namespace Data
 
 namespace Main {
@@ -57,22 +58,25 @@ void FillCreditOptions(
 	std::shared_ptr<Main::SessionShow> show,
 	not_null<Ui::VerticalLayout*> container,
 	not_null<PeerData*> peer,
-	int minCredits,
-	Fn<void()> paid);
+	StarsAmount minCredits,
+	Fn<void()> paid,
+	rpl::producer<QString> subtitle,
+	std::vector<Data::CreditTopupOption> preloadedTopupOptions);
 
 [[nodiscard]] not_null<Ui::RpWidget*> AddBalanceWidget(
 	not_null<Ui::RpWidget*> parent,
-	rpl::producer<uint64> balanceValue,
-	bool rightAlign);
+	rpl::producer<StarsAmount> balanceValue,
+	bool rightAlign,
+	rpl::producer<float64> opacityValue = nullptr);
 
 void AddWithdrawalWidget(
 	not_null<Ui::VerticalLayout*> container,
 	not_null<Window::SessionController*> controller,
 	not_null<PeerData*> peer,
 	rpl::producer<QString> secondButtonUrl,
-	rpl::producer<uint64> availableBalanceValue,
+	rpl::producer<StarsAmount> availableBalanceValue,
 	rpl::producer<QDateTime> dateValue,
-	rpl::producer<bool> lockedValue,
+	bool withdrawalEnabled,
 	rpl::producer<QString> usdValue);
 
 void ReceiptCreditsBox(
@@ -126,6 +130,11 @@ void ShowRefundInfoBox(
 	int totalCount,
 	int photoSize);
 
+[[nodiscard]] object_ptr<Ui::RpWidget> SubscriptionUserpic(
+	not_null<Ui::RpWidget*> parent,
+	not_null<PeerData*> peer,
+	int photoSize);
+
 struct SmallBalanceBot {
 	UserId botId = 0;
 };
@@ -153,7 +162,7 @@ struct SmallBalanceSource : std::variant<
 void SmallBalanceBox(
 	not_null<Ui::GenericBox*> box,
 	std::shared_ptr<Main::SessionShow> show,
-	uint64 credits,
+	uint64 wholeCredits,
 	SmallBalanceSource source,
 	Fn<void()> paid);
 
@@ -170,5 +179,11 @@ void MaybeRequestBalanceIncrease(
 	SmallBalanceSource source,
 	Fn<void(SmallBalanceResult)> done);
 
-} // namespace Settings
+void AddMiniStars(
+	not_null<Ui::VerticalLayout*> content,
+	not_null<Ui::RpWidget*> widget,
+	int photoSize,
+	int boxWidth,
+	float64 heightRatio);
 
+} // namespace Settings

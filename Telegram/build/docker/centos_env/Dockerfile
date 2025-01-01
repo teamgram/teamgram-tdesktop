@@ -1,7 +1,7 @@
 {%- set GIT = "https://github.com" -%}
 {%- set GIT_FREEDESKTOP = GIT ~ "/gitlab-freedesktop-mirrors" -%}
 {%- set GIT_UPDATE_M4 = "git submodule set-url m4 https://gitlab.freedesktop.org/xorg/util/xcb-util-m4 && git config -f .gitmodules submodule.m4.shallow true && git submodule init && git submodule update" -%}
-{%- set QT = "6.8.0" -%}
+{%- set QT = "6.8.1" -%}
 {%- set QT_TAG = "v" ~ QT -%}
 {%- set CFLAGS_DEBUG = "$CFLAGS -O0 -fno-lto -U_FORTIFY_SOURCE" -%}
 {%- set LibrariesPath = "/usr/src/Libraries" -%}
@@ -42,7 +42,7 @@ FROM builder AS patches
 RUN git init patches \
 	&& cd patches \
 	&& git remote add origin {{ GIT }}/desktop-app/patches.git \
-	&& git fetch --depth=1 origin e47e7ed0d383b8ca5622a58a5ffa0c8d5f00651f \
+	&& git fetch --depth=1 origin cf3b896e00c288143fce51862dbd9b1c86df1960 \
 	&& git reset --hard FETCH_HEAD \
 	&& rm -rf .git
 
@@ -226,7 +226,7 @@ RUN git clone -b v1.0.4 --depth=1 {{ GIT }}/AOMediaCodec/libavif.git \
 FROM builder AS libheif
 COPY --link --from=libde265 {{ LibrariesPath }}/libde265-cache /
 
-RUN git clone -b v1.17.6 --depth=1 {{ GIT }}/strukturag/libheif.git \
+RUN git clone -b v1.18.2 --depth=1 {{ GIT }}/strukturag/libheif.git \
 	&& cd libheif \
 	&& cmake -GNinja -B build . \
 		-DCMAKE_BUILD_TYPE=None \
@@ -252,9 +252,8 @@ COPY --link --from=lcms2 {{ LibrariesPath }}/lcms2-cache /
 COPY --link --from=brotli {{ LibrariesPath }}/brotli-cache /
 COPY --link --from=highway {{ LibrariesPath }}/highway-cache /
 
-RUN git clone -b v0.10.3 --depth=1 {{ GIT }}/libjxl/libjxl.git \
+RUN git clone -b v0.11.1 --depth=1 {{ GIT }}/libjxl/libjxl.git \
 	&& cd libjxl \
-	&& git apply ../patches/libjxl.patch \
 	&& git submodule update --init --recursive --depth=1 third_party/libjpeg-turbo \
 	&& cmake -GNinja -B build . \
 		-DCMAKE_BUILD_TYPE=None \
@@ -473,6 +472,7 @@ RUN git clone -b n12.1.14.0 --depth=1 {{ GIT }}/FFmpeg/nv-codec-headers.git \
 
 FROM builder AS ffmpeg
 COPY --link --from=opus {{ LibrariesPath }}/opus-cache /
+COPY --link --from=openh264 {{ LibrariesPath }}/openh264-cache /
 COPY --link --from=dav1d {{ LibrariesPath }}/dav1d-cache /
 COPY --link --from=libvpx {{ LibrariesPath }}/libvpx-cache /
 COPY --link --from=libXext {{ LibrariesPath }}/libXext-cache /
@@ -493,6 +493,7 @@ RUN git clone -b n6.1.1 --depth=1 {{ GIT }}/FFmpeg/FFmpeg.git \
 		--disable-autodetect \
 		--disable-everything \
 		--enable-libdav1d \
+		--enable-libopenh264 \
 		--enable-libopus \
 		--enable-libvpx \
 		--enable-vaapi \
@@ -587,6 +588,8 @@ RUN git clone -b n6.1.1 --depth=1 {{ GIT }}/FFmpeg/FFmpeg.git \
 		--enable-decoder=wmav1 \
 		--enable-decoder=wmav2 \
 		--enable-decoder=wmavoice \
+		--enable-encoder=aac \
+		--enable-encoder=libopenh264 \
 		--enable-encoder=libopus \
 		--enable-filter=atempo \
 		--enable-parser=aac \
@@ -610,6 +613,7 @@ RUN git clone -b n6.1.1 --depth=1 {{ GIT }}/FFmpeg/FFmpeg.git \
 		--enable-demuxer=mp3 \
 		--enable-demuxer=ogg \
 		--enable-demuxer=wav \
+		--enable-muxer=mp4 \
 		--enable-muxer=ogg \
 		--enable-muxer=opus \
 	&& make -j$(nproc) \
@@ -634,7 +638,7 @@ RUN git clone -b 0.3.62 --depth=1 {{ GIT }}/PipeWire/pipewire.git \
 FROM builder AS openal
 COPY --link --from=pipewire {{ LibrariesPath }}/pipewire-cache /
 
-RUN git clone -b 1.23.1 --depth=1 {{ GIT }}/kcat/openal-soft.git \
+RUN git clone -b 1.24.1 --depth=1 {{ GIT }}/kcat/openal-soft.git \
 	&& cd openal-soft \
 	&& cmake -GNinja -B build . \
 		-DCMAKE_BUILD_TYPE=None \
@@ -729,6 +733,7 @@ RUN git clone -b {{ QT_TAG }} --depth=1 {{ GIT }}/qt/qt5.git \
 	&& cmake -GNinja -B build . \
 		-DCMAKE_BUILD_TYPE=None \
 		-DBUILD_SHARED_LIBS=OFF \
+		-DQT_GENERATE_SBOM=OFF \
 		-DINPUT_libpng=qt \
 		-DINPUT_harfbuzz=qt \
 		-DINPUT_pcre=qt \
@@ -765,7 +770,7 @@ COPY --link --from=pipewire {{ LibrariesPath }}/pipewire-cache /
 RUN git init tg_owt \
 	&& cd tg_owt \
 	&& git remote add origin {{ GIT }}/desktop-app/tg_owt.git \
-	&& git fetch --depth=1 origin 4a60ce1ab9fdb962004c6a959f682ace3db50cbd \
+	&& git fetch --depth=1 origin 8198c4d8b91e22d68eb5c7327fd408e3b6abcc79 \
 	&& git reset --hard FETCH_HEAD \
 	&& git submodule update --init --recursive --depth=1 \
 	&& rm -rf .git \

@@ -110,7 +110,13 @@ QSize MediaGeneric::countOptimalSize() {
 }
 
 QSize MediaGeneric::countCurrentSize(int newWidth) {
-	return { maxWidth(), minHeight() };
+	if (newWidth > maxWidth()) {
+		newWidth = maxWidth();
+	}
+	for (auto &entry : _entries) {
+		entry.object->resizeGetHeight(newWidth);
+	}
+	return { newWidth, minHeight() };
 }
 
 void MediaGeneric::draw(Painter &p, const PaintContext &context) const {
@@ -435,7 +441,7 @@ void StickerInBubblePart::ensureCreated(Element *replacing) const {
 			_skipTop = data.skipTop;
 			_sticker.emplace(_parent, sticker, skipPremiumEffect, replacing);
 			if (data.singleTimePlayback) {
-				_sticker->setDiceIndex(info->alt, 1);
+				_sticker->setPlayingOnce(true);
 			}
 			_sticker->initSize(data.size);
 			_sticker->setCustomCachingTag(data.cacheTag);

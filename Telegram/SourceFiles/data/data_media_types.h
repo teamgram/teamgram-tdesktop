@@ -139,7 +139,7 @@ struct GiftCode {
 	TextWithEntities message;
 	ChannelData *channel = nullptr;
 	MsgId giveawayMsgId = 0;
-	int convertStars = 0;
+	int starsConverted = 0;
 	int limitedCount = 0;
 	int limitedLeft = 0;
 	int count = 0;
@@ -165,6 +165,7 @@ public:
 	virtual std::unique_ptr<Media> clone(not_null<HistoryItem*> parent) = 0;
 
 	virtual DocumentData *document() const;
+	virtual bool hasQualitiesList() const;
 	virtual PhotoData *photo() const;
 	virtual WebPageData *webpage() const;
 	virtual MediaWebPageFlags webpageFlags() const;
@@ -287,6 +288,7 @@ public:
 		not_null<HistoryItem*> parent,
 		not_null<DocumentData*> document,
 		bool skipPremiumEffect,
+		bool hasQualitiesList,
 		bool spoiler,
 		crl::time ttlSeconds);
 	~MediaFile();
@@ -294,6 +296,7 @@ public:
 	std::unique_ptr<Media> clone(not_null<HistoryItem*> parent) override;
 
 	DocumentData *document() const override;
+	bool hasQualitiesList() const override;
 
 	bool uploading() const override;
 	Storage::SharedMediaTypesMask sharedMediaTypes() const override;
@@ -324,6 +327,7 @@ private:
 	not_null<DocumentData*> _document;
 	QString _emoji;
 	bool _skipPremiumEffect = false;
+	bool _hasQualitiesList = false;
 	bool _spoiler = false;
 
 	// Video (unsupported) / Voice / Round.

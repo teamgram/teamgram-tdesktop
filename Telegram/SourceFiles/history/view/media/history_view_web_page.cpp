@@ -28,6 +28,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/view/history_view_sponsored_click_handler.h"
 #include "history/history.h"
 #include "history/history_item_components.h"
+#include "history/history_item_helpers.h"
 #include "lang/lang_keys.h"
 #include "main/main_session.h"
 #include "menu/menu_sponsored.h"
@@ -73,11 +74,13 @@ constexpr auto kFactcheckAboutDuration = 5 * crl::time(1000);
 	const auto spoiler = false;
 	for (const auto &item : data.items) {
 		if (const auto document = std::get_if<DocumentData*>(&item)) {
+			const auto hasQualitiesList = false;
 			const auto skipPremiumEffect = false;
 			result.push_back(std::make_unique<Data::MediaFile>(
 				parent,
 				*document,
 				skipPremiumEffect,
+				hasQualitiesList,
 				spoiler,
 				/*ttlSeconds = */0));
 		} else if (const auto photo = std::get_if<PhotoData*>(&item)) {
@@ -140,15 +143,6 @@ constexpr auto kFactcheckAboutDuration = 5 * crl::time(1000);
 			} else {
 				HiddenUrlClickHandler::Open(webpage->url, context.other);
 			}
-		}
-	});
-}
-
-[[nodiscard]] ClickHandlerPtr AboutSponsoredClickHandler() {
-	return std::make_shared<LambdaClickHandler>([=](ClickContext context) {
-		const auto my = context.other.value<ClickHandlerContext>();
-		if (const auto controller = my.sessionWindow.get()) {
-			Menu::ShowSponsoredAbout(controller->uiShow());
 		}
 	});
 }
@@ -566,7 +560,9 @@ QSize WebPage::countOptimalSize() {
 	}
 
 	// init dimensions
-	const auto skipBlockWidth = _parent->skipBlockWidth();
+	const auto skipBlockWidth = (sponsored && sponsored->hasMedia)
+		? 0
+		: _parent->skipBlockWidth();
 	auto maxWidth = skipBlockWidth;
 	auto minHeight = 0;
 
@@ -634,8 +630,13 @@ QSize WebPage::countOptimalSize() {
 		_durationWidth = st::msgDateFont->width(_duration);
 	}
 	if (!_openButton.isEmpty()) {
-		maxWidth += rect::m::sum::h(st::historyPageButtonPadding)
+		const auto w = rect::m::sum::h(st::historyPageButtonPadding)
 			+ _openButton.maxWidth();
+		if (sponsored) {
+			accumulate_max(maxWidth, w);
+		} else {
+			maxWidth += w;
+		}
 	}
 	maxWidth += rect::m::sum::h(padding);
 	minHeight += rect::m::sum::v(padding);
@@ -669,8 +670,8 @@ QSize WebPage::countCurrentSize(int newWidth) {
 	const auto stickerSet = stickerSetData();
 	const auto factcheck = factcheckData();
 	const auto sponsored = sponsoredData();
-	const auto specialRightPix = ((sponsored && !sponsored->hasMedia)
-		|| stickerSet);
+	const auto specialRightPix = (stickerSet
+		|| (sponsored && !sponsored->hasMedia && _data->photo));
 	const auto lineHeight = UnitedLineHeight();
 	const auto factcheckMetrics = factcheck
 		? computeFactcheckMetrics(_description.countHeight(innerWidth))
@@ -684,7 +685,7 @@ QSize WebPage::countCurrentSize(int newWidth) {
 	}
 	const auto linesMax = factcheck
 		? (factcheckMetrics.lines + 1)
-		: (specialRightPix || isLogEntryOriginal())
+		: (sponsored || isLogEntryOriginal())
 		? kMaxOriginalEntryLines
 		: 5;
 	const auto siteNameHeight = _siteNameLines ? lineHeight : 0;
@@ -717,7 +718,9 @@ QSize WebPage::countCurrentSize(int newWidth) {
 				newHeight += _titleLines * lineHeight;
 			}
 
-			const auto descriptionHeight = _description.countHeight(wleft);
+			const auto descriptionHeight = _description.countHeight(sponsored
+				? innerWidth
+				: wleft);
 			const auto restLines = (linesMax - _siteNameLines - _titleLines);
 			if (descriptionHeight < restLines * descriptionLineHeight) {
 				// We have height for all the lines.
@@ -1074,7 +1077,7 @@ void WebPage::draw(Painter &p, const PaintContext &context) const {
 			? _parent->skipBlockWidth()
 			: 0;
 		const auto titleWidth = sponsored
-			? (paintw - _pixh - st::webPagePhotoDelta)
+			? (paintw - (_pixh ? (_pixh + st::webPagePhotoDelta) : 0))
 			: paintw;
 		_title.drawLeftElided(
 			p,
@@ -1232,8 +1235,9 @@ void WebPage::draw(Painter &p, const PaintContext &context) const {
 			.position = QPoint(
 				inner.x() + (inner.width() - _openButton.maxWidth()) / 2,
 				end + st::historyPageButtonPadding.top()),
-			.availableWidth = paintw,
+			.availableWidth = inner.width(),
 			.now = context.now,
+			.elisionLines = 1,
 		});
 	}
 }
@@ -1516,7 +1520,7 @@ void WebPage::clickHandlerPressedChanged(
 		}
 		return;
 	}
-	if (p == _openl) {
+	if ((p == _openl) || (sponsoredData() && sponsoredData()->link == p)) {
 		if (pressed) {
 			if (!_ripple) {
 				const auto full = Rect(currentSize());

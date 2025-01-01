@@ -57,7 +57,9 @@ void ResolveGiveawayInfo(
 void AddStarGiftTable(
 	not_null<Window::SessionNavigation*> controller,
 	not_null<Ui::VerticalLayout*> container,
-	const Data::CreditsHistoryEntry &entry);
+	const Data::CreditsHistoryEntry &entry,
+	Fn<void(bool)> toggleVisibility,
+	Fn<void()> convertToStars);
 void AddCreditsHistoryEntryTable(
 	not_null<Window::SessionNavigation*> controller,
 	not_null<Ui::VerticalLayout*> container,

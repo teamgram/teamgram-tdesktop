@@ -23,6 +23,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 namespace Core {
 namespace {
 
+constexpr auto kInitialVideoQuality = 480; // Start with SD.
+
 [[nodiscard]] WindowPosition Deserialize(const QByteArray &data) {
 	QDataStream stream(data);
 	stream.setVersion(QDataStream::Qt_5_1);
@@ -88,6 +90,21 @@ void LogPosition(const WindowPosition &position, const QString &name) {
 	return RecentEmojiDocument{ id, (test == '1') };
 }
 
+[[nodiscard]] quint32 SerializeVideoQuality(Media::VideoQuality quality) {
+	static_assert(sizeof(Media::VideoQuality) == sizeof(uint32));
+	auto result = uint32();
+	const auto data = static_cast<const void*>(&quality);
+	memcpy(&result, data, sizeof(quality));
+	return result;
+}
+
+[[nodiscard]] Media::VideoQuality DeserializeVideoQuality(quint32 value) {
+	auto result = Media::VideoQuality();
+	const auto data = static_cast<void*>(&result);
+	memcpy(data, &value, sizeof(result));
+	return (result.height <= 4320) ? result : Media::VideoQuality();
+}
+
 } // namespace
 
 [[nodiscard]] WindowPosition AdjustToScale(
@@ -124,7 +141,8 @@ Settings::Settings()
 , _floatPlayerColumn(Window::Column::Second)
 , _floatPlayerCorner(RectPart::TopRight)
 , _dialogsWithChatWidthRatio(DefaultDialogsWidthRatio())
-, _dialogsNoChatWidthRatio(DefaultDialogsWidthRatio()) {
+, _dialogsNoChatWidthRatio(DefaultDialogsWidthRatio())
+, _videoQuality({ .height = kInitialVideoQuality }) {
 }
 
 Settings::~Settings() = default;
@@ -222,7 +240,7 @@ QByteArray Settings::serialize() const {
 		+ Serialize::stringSize(_customFontFamily)
 		+ sizeof(qint32) * 3
 		+ Serialize::bytearraySize(_tonsiteStorageToken)
-		+ sizeof(qint32) * 2;
+		+ sizeof(qint32) * 7;
 
 	auto result = QByteArray();
 	result.reserve(size);
@@ -291,7 +309,7 @@ QByteArray Settings::serialize() const {
 			<< qint32(_thirdSectionExtendedBy)
 			<< qint32(_notifyFromAll ? 1 : 0)
 			<< qint32(_nativeWindowFrame.current() ? 1 : 0)
-			<< qint32(_systemDarkModeEnabled.current() ? 1 : 0)
+			<< qint32(0) // Legacy system dark mode
 			<< _cameraDeviceId.current()
 			<< qint32(_ipRevealWarning ? 1 : 0)
 			<< qint32(_groupCallPushToTalk ? 1 : 0)
@@ -378,7 +396,12 @@ QByteArray Settings::serialize() const {
 			<< qint32(!_weatherInCelsius ? 0 : *_weatherInCelsius ? 1 : 2)
 			<< _tonsiteStorageToken
 			<< qint32(_includeMutedCounterFolders ? 1 : 0)
-			<< qint32(_ivZoom.current());
+			<< qint32(_chatFiltersHorizontal.current() ? 1 : 0)
+			<< qint32(_skipToastsInFocus ? 1 : 0)
+			<< qint32(_recordVideoMessages ? 1 : 0)
+			<< SerializeVideoQuality(_videoQuality)
+			<< qint32(_ivZoom.current())
+			<< qint32(_systemDarkModeEnabled.current() ? 1 : 0);
 	}
 
 	Ensures(result.size() == size);
@@ -503,6 +526,10 @@ void Settings::addFromSerialized(const QByteArray &serialized) {
 	qint32 weatherInCelsius = !_weatherInCelsius ? 0 : *_weatherInCelsius ? 1 : 2;
 	QByteArray tonsiteStorageToken = _tonsiteStorageToken;
 	qint32 ivZoom = _ivZoom.current();
+	qint32 skipToastsInFocus = _skipToastsInFocus ? 1 : 0;
+	qint32 recordVideoMessages = _recordVideoMessages ? 1 : 0;
+	quint32 videoQuality = SerializeVideoQuality(_videoQuality);
+	quint32 chatFiltersHorizontal = _chatFiltersHorizontal.current() ? 1 : 0;
 
 	stream >> themesAccentColors;
 	if (!stream.atEnd()) {
@@ -584,6 +611,7 @@ void Settings::addFromSerialized(const QByteArray &serialized) {
 		stream >> nativeWindowFrame;
 	}
 	if (!stream.atEnd()) {
+		// Read over this one below, if was in the file.
 		stream >> systemDarkModeEnabled;
 	}
 	if (!stream.atEnd()) {
@@ -813,7 +841,22 @@ void Settings::addFromSerialized(const QByteArray &serialized) {
 		stream >> includeMutedCounterFolders;
 	}
 	if (!stream.atEnd()) {
+		stream >> chatFiltersHorizontal;
+	}
+	if (!stream.atEnd()) {
+		stream >> skipToastsInFocus;
+	}
+	if (!stream.atEnd()) {
+		stream >> recordVideoMessages;
+	}
+	if (!stream.atEnd()) {
+		stream >> videoQuality;
+	}
+	if (!stream.atEnd()) {
 		stream >> ivZoom;
+	}
+	if (!stream.atEnd()) {
+		stream >> systemDarkModeEnabled;
 	}
 	if (stream.status() != QDataStream::Ok) {
 		LOG(("App Error: "
@@ -1027,6 +1070,10 @@ void Settings::addFromSerialized(const QByteArray &serialized) {
 		: (weatherInCelsius == 1);
 	_tonsiteStorageToken = tonsiteStorageToken;
 	_ivZoom = ivZoom;
+	_skipToastsInFocus = (skipToastsInFocus == 1);
+	_recordVideoMessages = (recordVideoMessages == 1);
+	_videoQuality = DeserializeVideoQuality(videoQuality);
+	_chatFiltersHorizontal = (chatFiltersHorizontal == 1);
 }
 
 QString Settings::getSoundPath(const QString &key) const {
@@ -1353,6 +1400,7 @@ void Settings::resetOnLastLogout() {
 	_flashBounceNotify = true;
 	_notifyView = NotifyView::ShowPreview;
 	//_nativeNotifications = std::nullopt;
+	//_skipToastsInFocus = false;
 	//_notificationsCount = 3;
 	//_notificationsCorner = ScreenCorner::BottomRight;
 	_includeMutedCounter = true;
@@ -1410,11 +1458,13 @@ void Settings::resetOnLastLogout() {
 	_thirdColumnWidth = kDefaultThirdColumnWidth; // p-w
 	_notifyFromAll = true;
 	_tabbedReplacedWithInfo = false; // per-window
-	_systemDarkModeEnabled = false;
 	_hiddenGroupCallTooltips = 0;
 	_storiesClickTooltipHidden = false;
 	_ttlVoiceClickTooltipHidden = false;
 	_ivZoom = 100;
+	_recordVideoMessages = false;
+	_videoQuality = {};
+	_chatFiltersHorizontal = false;
 
 	_recentEmojiPreload.clear();
 	_recentEmoji.clear();
@@ -1470,6 +1520,14 @@ void Settings::setNativeNotifications(bool value) {
 	_nativeNotifications = (value == Platform::Notifications::ByDefault())
 		? std::nullopt
 		: std::make_optional(value);
+}
+
+bool Settings::skipToastsInFocus() const {
+	return _skipToastsInFocus;
+}
+
+void Settings::setSkipToastsInFocus(bool value) {
+	_skipToastsInFocus = value;
 }
 
 void Settings::setTranslateButtonEnabled(bool value) {
@@ -1550,6 +1608,7 @@ auto Settings::skipTranslationLanguagesValue() const
 void Settings::setRememberedDeleteMessageOnlyForYou(bool value) {
 	_rememberedDeleteMessageOnlyForYou = value;
 }
+
 bool Settings::rememberedDeleteMessageOnlyForYou() const {
 	return _rememberedDeleteMessageOnlyForYou;
 }
@@ -1557,13 +1616,40 @@ bool Settings::rememberedDeleteMessageOnlyForYou() const {
 int Settings::ivZoom() const {
 	return _ivZoom.current();
 }
+
 rpl::producer<int> Settings::ivZoomValue() const {
 	return _ivZoom.value();
 }
+
 void Settings::setIvZoom(int value) {
+#ifdef Q_OS_WIN
+	constexpr auto kMin = 25;
+	constexpr auto kMax = 500;
+#else
 	constexpr auto kMin = 30;
 	constexpr auto kMax = 200;
+#endif
 	_ivZoom = std::clamp(value, kMin, kMax);
+}
+
+Media::VideoQuality Settings::videoQuality() const {
+	return _videoQuality;
+}
+
+void Settings::setVideoQuality(Media::VideoQuality value) {
+	_videoQuality = value;
+}
+
+bool Settings::chatFiltersHorizontal() const {
+	return _chatFiltersHorizontal.current();
+}
+
+rpl::producer<bool> Settings::chatFiltersHorizontalChanges() const {
+	return _chatFiltersHorizontal.changes();
+}
+
+void Settings::setChatFiltersHorizontal(bool value) {
+	_chatFiltersHorizontal = value;
 }
 
 } // namespace Core

@@ -8,10 +8,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "api/api_chat_filters.h"
 
 #include "apiwrap.h"
+#include "base/event_filter.h"
 #include "boxes/peer_list_box.h"
 #include "boxes/premium_limits_box.h"
 #include "boxes/filters/edit_filter_links.h" // FilterChatStatusText
 #include "core/application.h"
+#include "core/core_settings.h"
 #include "data/data_channel.h"
 #include "data/data_chat.h"
 #include "data/data_chat_filters.h"
@@ -138,7 +140,8 @@ void InitFilterLinkHeader(
 		Ui::FilterLinkHeaderType type,
 		const QString &title,
 		const QString &iconEmoji,
-		rpl::producer<int> count) {
+		rpl::producer<int> count,
+		bool horizontalFilters) {
 	const auto icon = Ui::LookupFilterIcon(
 		Ui::LookupFilterIconByEmoji(
 			iconEmoji
@@ -152,6 +155,7 @@ void InitFilterLinkHeader(
 		.badge = (type == Ui::FilterLinkHeaderType::AddingChats
 			? std::move(count)
 			: rpl::single(0)),
+		.horizontalFilters = horizontalFilters,
 	});
 	const auto widget = header.widget;
 	widget->resizeToWidth(st::boxWideWidth);
@@ -546,6 +550,26 @@ void ShowImportToast(
 	strong->showToast(std::move(text));
 }
 
+void HandleEnterInBox(not_null<Ui::BoxContent*> box) {
+	const auto isEnter = [=](not_null<QEvent*> event) {
+		if (event->type() == QEvent::KeyPress) {
+			if (const auto k = static_cast<QKeyEvent*>(event.get())) {
+				return (k->key() == Qt::Key_Enter)
+					|| (k->key() == Qt::Key_Return);
+			}
+		}
+		return false;
+	};
+
+	base::install_event_filter(box, [=](not_null<QEvent*> event) {
+		if (isEnter(event)) {
+			box->triggerButton(0);
+			return base::EventFilterResult::Cancel;
+		}
+		return base::EventFilterResult::Continue;
+	});
+}
+
 void ProcessFilterInvite(
 		base::weak_ptr<Window::SessionController> weak,
 		const QString &slug,
@@ -570,6 +594,8 @@ void ProcessFilterInvite(
 		title,
 		std::move(peers),
 		std::move(already));
+	const auto horizontalFilters = !strong->enoughSpaceForFilters()
+		|| Core::App().settings().chatFiltersHorizontal();
 	const auto raw = controller.get();
 	auto initBox = [=](not_null<PeerListBox*> box) {
 		box->setStyle(st::filterInviteBox);
@@ -586,7 +612,7 @@ void ProcessFilterInvite(
 		});
 		InitFilterLinkHeader(box, [=](int min, int max, int addedTop) {
 			raw->adjust(min, max, addedTop);
-		}, type, title, iconEmoji, rpl::duplicate(badge));
+		}, type, title, iconEmoji, rpl::duplicate(badge), horizontalFilters);
 
 		raw->setRealContentHeight(box->heightValue());
 
@@ -607,6 +633,8 @@ void ProcessFilterInvite(
 		}, button->lifetime());
 
 		box->addButton(std::move(owned));
+
+		HandleEnterInBox(box);
 
 		struct State {
 			bool importing = false;
@@ -796,6 +824,8 @@ void ProcessFilterRemove(
 		title,
 		std::move(suggest),
 		std::move(all));
+	const auto horizontalFilters = !strong->enoughSpaceForFilters()
+		|| Core::App().settings().chatFiltersHorizontal();
 	const auto raw = controller.get();
 	auto initBox = [=](not_null<PeerListBox*> box) {
 		box->setStyle(st::filterInviteBox);
@@ -807,7 +837,7 @@ void ProcessFilterRemove(
 		});
 		InitFilterLinkHeader(box, [=](int min, int max, int addedTop) {
 			raw->adjust(min, max, addedTop);
-		}, type, title, iconEmoji, rpl::single(0));
+		}, type, title, iconEmoji, rpl::single(0), horizontalFilters);
 
 		auto owned = Ui::FilterLinkProcessButton(
 			box,
@@ -826,6 +856,8 @@ void ProcessFilterRemove(
 		}, button->lifetime());
 
 		box->addButton(std::move(owned));
+
+		HandleEnterInBox(box);
 
 		raw->selectedValue(
 		) | rpl::start_with_next([=](

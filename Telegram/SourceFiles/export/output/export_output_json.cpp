@@ -390,6 +390,11 @@ QByteArray SerializeMessage(
 			push("height", image.height);
 		}
 	};
+	const auto pushSpoiler = [&](const auto &media) {
+		if (media.spoilered) {
+			push("media_spoiler", true);
+		}
+	};
 
 	v::match(message.action.content, [&](const ActionChatCreate &data) {
 		pushActor();
@@ -404,6 +409,7 @@ QByteArray SerializeMessage(
 		pushActor();
 		pushAction("edit_group_photo");
 		pushPhoto(data.photo.image);
+		pushSpoiler(data.photo);
 	}, [&](const ActionChatDeletePhoto &data) {
 		pushActor();
 		pushAction("delete_group_photo");
@@ -587,6 +593,7 @@ QByteArray SerializeMessage(
 		pushActor();
 		pushAction("suggest_profile_photo");
 		pushPhoto(data.photo.image);
+		pushSpoiler(data.photo);
 	}, [&](const ActionRequestedPeer &data) {
 		pushActor();
 		pushAction("requested_peer");
@@ -654,7 +661,7 @@ QByteArray SerializeMessage(
 		push("stars", data.stars);
 		push("is_limited", data.limited);
 		push("is_anonymous", data.anonymous);
-		pushBare("text", SerializeText(context, data.text));
+		pushBare("gift_text", SerializeText(context, data.text));
 	}, [](v::null_t) {});
 
 	if (v::is_null(message.action.content)) {
@@ -684,6 +691,7 @@ QByteArray SerializeMessage(
 
 	v::match(message.media.content, [&](const Photo &photo) {
 		pushPhoto(photo.image);
+		pushSpoiler(photo);
 		pushTTL();
 	}, [&](const Document &data) {
 		pushPath(data.file, "file");
@@ -718,6 +726,7 @@ QByteArray SerializeMessage(
 			push("width", data.width);
 			push("height", data.height);
 		}
+		pushSpoiler(data);
 		pushTTL();
 	}, [&](const SharedContact &data) {
 		pushBare("contact_information", SerializeObject(context, {

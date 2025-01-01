@@ -10,6 +10,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "apiwrap.h"
 #include "api/api_credits.h"
 #include "api/api_peer_photo.h"
+#include "api/api_statistics.h"
 #include "api/api_user_names.h"
 #include "main/main_session.h"
 #include "ui/boxes/confirm_box.h"
@@ -45,7 +46,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_user.h"
 #include "history/admin_log/history_admin_log_section.h"
 #include "info/bot/earn/info_bot_earn_widget.h"
+#include "info/bot/starref/info_bot_starref_join_widget.h"
+#include "info/bot/starref/info_bot_starref_setup_widget.h"
 #include "info/channel_statistics/boosts/info_boosts_widget.h"
+#include "info/channel_statistics/earn/earn_format.h"
+#include "info/channel_statistics/earn/earn_icons.h"
+#include "info/channel_statistics/earn/info_channel_earn_widget.h"
 #include "info/profile/info_profile_values.h"
 #include "info/info_memento.h"
 #include "lang/lang_keys.h"
@@ -56,6 +62,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/controls/emoji_button.h"
 #include "ui/controls/userpic_button.h"
 #include "ui/effects/premium_graphics.h"
+#include "ui/new_badges.h"
 #include "ui/rect.h"
 #include "ui/rp_widget.h"
 #include "ui/vertical_list.h"
@@ -74,6 +81,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_chat_helpers.h"
 #include "styles/style_layers.h"
 #include "styles/style_menu_icons.h"
+#include "styles/style_settings.h"
 #include "styles/style_boxes.h"
 #include "styles/style_info.h"
 
@@ -352,7 +360,9 @@ private:
 	void fillPendingRequestsButton();
 
 	void fillBotUsernamesButton();
-	void fillBotBalanceButton();
+	void fillBotCurrencyButton();
+	void fillBotCreditsButton();
+	void fillBotAffiliateProgram();
 	void fillBotEditIntroButton();
 	void fillBotEditCommandsButton();
 	void fillBotEditSettingsButton();
@@ -1174,7 +1184,9 @@ void Controller::fillManageSection() {
 
 		::AddSkip(container, 0);
 		fillBotUsernamesButton();
-		fillBotBalanceButton();
+		fillBotCurrencyButton();
+		fillBotCreditsButton();
+		fillBotAffiliateProgram();
 		fillBotEditIntroButton();
 		fillBotEditCommandsButton();
 		fillBotEditSettingsButton();
@@ -1232,6 +1244,9 @@ void Controller::fillManageSection() {
 		&& (channel->isBroadcast() || channel->isGigagroup());
 	const auto hasRecentActions = isChannel
 		&& (channel->hasAdminRights() || channel->amCreator());
+	const auto hasStarRef = Info::BotStarRef::Join::Allowed(_peer)
+		&& isChannel
+		&& channel->canPostMessages();
 	const auto canEditStickers = isChannel && channel->canEditStickers();
 	const auto canDeleteChannel = isChannel && channel->canDelete();
 	const auto canEditColorIndex = isChannel && channel->canEditEmoji();
@@ -1414,9 +1429,20 @@ void Controller::fillManageSection() {
 		AddButtonWithCount(
 			_controls.buttonsLayout,
 			tr::lng_manage_peer_recent_actions(),
-			rpl::single(QString()), //Empty count.
+			rpl::single(QString()), // Empty count.
 			std::move(callback),
 			{ &st::menuIconGroupLog });
+	}
+	if (hasStarRef) {
+		auto callback = [=] {
+			_navigation->showSection(Info::BotStarRef::Join::Make(_peer));
+		};
+		AddButtonWithCount(
+			_controls.buttonsLayout,
+			tr::lng_manage_peer_star_ref(),
+			rpl::single(QString()), // Empty count.
+			std::move(callback),
+			{ .icon = &st::menuIconStarRefShare, .newBadge = true });
 	}
 
 	if (canEditStickers || canDeleteChannel) {
@@ -1583,7 +1609,72 @@ void Controller::fillBotUsernamesButton() {
 		{ &st::menuIconLinks });
 }
 
-void Controller::fillBotBalanceButton() {
+void Controller::fillBotCurrencyButton() {
+	Expects(_isBot);
+
+	struct State final {
+		rpl::variable<QString> balance;
+	};
+
+	auto &lifetime = _controls.buttonsLayout->lifetime();
+	const auto state = lifetime.make_state<State>();
+	const auto format = [=](uint64 balance) {
+		return Info::ChannelEarn::MajorPart(balance)
+			+ Info::ChannelEarn::MinorPart(balance);
+	};
+	const auto was = _peer->session().credits().balanceCurrency(
+		_peer->id);
+	if (was) {
+		state->balance = format(was);
+	}
+
+	const auto wrap = _controls.buttonsLayout->add(
+		object_ptr<Ui::SlideWrap<Ui::SettingsButton>>(
+			_controls.buttonsLayout,
+			EditPeerInfoBox::CreateButton(
+				_controls.buttonsLayout,
+				tr::lng_manage_peer_bot_balance_currency(),
+				state->balance.value(),
+				[controller = _navigation->parentController(), peer = _peer] {
+					controller->showSection(Info::ChannelEarn::Make(peer));
+				},
+				st::manageGroupButton,
+				{})));
+	wrap->toggle(!state->balance.current().isEmpty(), anim::type::instant);
+
+	const auto button = wrap->entity();
+	{
+		const auto currencyLoad
+			= button->lifetime().make_state<Api::EarnStatistics>(_peer);
+		currencyLoad->request(
+		) | rpl::start_with_error_done([=](const QString &error) {
+		}, [=] {
+			const auto balance = currencyLoad->data().currentBalance;
+			if (balance) {
+				wrap->toggle(true, anim::type::normal);
+			}
+			state->balance = format(balance);
+		}, button->lifetime());
+	}
+	{
+		const auto icon = Ui::CreateChild<Ui::RpWidget>(button);
+		icon->resize(st::menuIconLinks.size());
+		const auto image = Ui::Earn::MenuIconCurrency(icon->size());
+		icon->paintRequest() | rpl::start_with_next([=] {
+			auto p = QPainter(icon);
+			p.drawImage(0, 0, image);
+		}, icon->lifetime());
+
+		button->sizeValue(
+		) | rpl::start_with_next([=](const QSize &size) {
+			icon->moveToLeft(
+				button->st().iconLeft,
+				(size.height() - icon->height()) / 2);
+		}, icon->lifetime());
+	}
+}
+
+void Controller::fillBotCreditsButton() {
 	Expects(_isBot);
 
 	struct State final {
@@ -1593,7 +1684,7 @@ void Controller::fillBotBalanceButton() {
 	auto &lifetime = _controls.buttonsLayout->lifetime();
 	const auto state = lifetime.make_state<State>();
 	if (const auto balance = _peer->session().credits().balance(_peer->id)) {
-		state->balance = QString::number(balance);
+		state->balance = Lang::FormatStarsAmountDecimal(balance);
 	}
 
 	const auto wrap = _controls.buttonsLayout->add(
@@ -1601,7 +1692,7 @@ void Controller::fillBotBalanceButton() {
 			_controls.buttonsLayout,
 			EditPeerInfoBox::CreateButton(
 				_controls.buttonsLayout,
-				tr::lng_manage_peer_bot_balance(),
+				tr::lng_manage_peer_bot_balance_credits(),
 				state->balance.value(),
 				[controller = _navigation->parentController(), peer = _peer] {
 					controller->showSection(Info::BotEarn::Make(peer));
@@ -1618,50 +1709,55 @@ void Controller::fillBotBalanceButton() {
 			if (data.balance) {
 				wrap->toggle(true, anim::type::normal);
 			}
-			state->balance = QString::number(data.balance);
+			state->balance = Lang::FormatStarsAmountDecimal(data.balance);
 		});
 	}
 	{
-		constexpr auto kSizeShift = 3;
-		constexpr auto kStrokeWidth = 5;
-
 		const auto icon = Ui::CreateChild<Ui::RpWidget>(button);
-		icon->resize(Size(st::menuIconLinks.width() - kSizeShift));
-
-		auto colorized = [&] {
-			auto f = QFile(Ui::Premium::Svg());
-			if (!f.open(QIODevice::ReadOnly)) {
-				return QString();
-			}
-			return QString::fromUtf8(
-				f.readAll()).replace(u"#fff"_q, u"#ffffff00"_q);
-		}();
-		colorized.replace(
-			u"stroke=\"none\""_q,
-			u"stroke=\"%1\""_q.arg(st::menuIconColor->c.name()));
-		colorized.replace(
-			u"stroke-width=\"1\""_q,
-			u"stroke-width=\"%1\""_q.arg(kStrokeWidth));
-		const auto svg = icon->lifetime().make_state<QSvgRenderer>(
-			colorized.toUtf8());
-		svg->setViewBox(svg->viewBox() + Margins(kStrokeWidth));
-
-		const auto starSize = Size(icon->height());
-
-		icon->paintRequest(
-		) | rpl::start_with_next([=] {
+		const auto image = Ui::Earn::MenuIconCredits();
+		icon->resize(image.size() / style::DevicePixelRatio());
+		icon->paintRequest() | rpl::start_with_next([=] {
 			auto p = QPainter(icon);
-			svg->render(&p, Rect(starSize));
+			p.drawImage(0, 0, image);
 		}, icon->lifetime());
 
 		button->sizeValue(
 		) | rpl::start_with_next([=](const QSize &size) {
 			icon->moveToLeft(
-				button->st().iconLeft + kSizeShift / 2.,
+				button->st().iconLeft,
 				(size.height() - icon->height()) / 2);
 		}, icon->lifetime());
 	}
 
+}
+
+void Controller::fillBotAffiliateProgram() {
+	Expects(_isBot);
+
+	if (!Info::BotStarRef::Setup::Allowed(_peer)) {
+		return;
+	}
+
+	const auto user = _peer->asUser();
+	auto label = user->session().changes().peerFlagsValue(
+		user,
+		Data::PeerUpdate::Flag::StarRefProgram
+	) | rpl::map([=] {
+		const auto commission = user->botInfo
+			? user->botInfo->starRefProgram.commission
+			: 0;
+		return commission
+			? Info::BotStarRef::FormatCommission(commission)
+			: tr::lng_manage_peer_bot_star_ref_off(tr::now);
+	});
+	AddButtonWithCount(
+		_controls.buttonsLayout,
+		tr::lng_manage_peer_bot_star_ref(),
+		std::move(label),
+		[controller = _navigation->parentController(), user] {
+			controller->showSection(Info::BotStarRef::Setup::Make(user));
+		},
+		{ .icon = &st::menuIconSharing, .newBadge = true });
 }
 
 void Controller::fillBotEditIntroButton() {
@@ -2180,7 +2276,9 @@ void Controller::saveHistoryVisibility() {
 void Controller::toggleBotManager(const QString &command) {
 	const auto controller = _navigation->parentController();
 	_api.request(MTPcontacts_ResolveUsername(
-		MTP_string(kBotManagerUsername.utf16())
+		MTP_flags(0),
+		MTP_string(kBotManagerUsername.utf16()),
+		MTP_string()
 	)).done([=](const MTPcontacts_ResolvedPeer &result) {
 		_peer->owner().processUsers(result.data().vusers());
 		_peer->owner().processChats(result.data().vchats());
@@ -2454,6 +2552,13 @@ object_ptr<Ui::SettingsButton> EditPeerInfoBox::CreateButton(
 		st.button);
 	const auto button = result.data();
 	button->addClickHandler(callback);
+
+	const auto badge = descriptor.newBadge
+		? Ui::NewBadge::CreateNewBadge(
+			button,
+			tr::lng_premium_summary_new_badge()).get()
+		: nullptr;
+
 	if (descriptor) {
 		AddButtonIcon(
 			button,
@@ -2462,7 +2567,7 @@ object_ptr<Ui::SettingsButton> EditPeerInfoBox::CreateButton(
 	}
 
 	auto labelText = rpl::combine(
-		std::move(text),
+		rpl::duplicate(text),
 		std::move(count),
 		button->widthValue()
 	) | rpl::map([&st](const QString &text, const QString &count, int width) {
@@ -2477,11 +2582,40 @@ object_ptr<Ui::SettingsButton> EditPeerInfoBox::CreateButton(
 			: count;
 	});
 
+	if (badge) {
+		rpl::combine(
+			std::move(text),
+			rpl::duplicate(labelText),
+			button->widthValue()
+		) | rpl::start_with_next([=](
+				const QString &text,
+				const QString &label,
+				int width) {
+			const auto space = st.button.style.font->spacew;
+			const auto left = st.button.padding.left()
+				+ st.button.style.font->width(text)
+				+ space;
+			const auto right = st.labelPosition.x()
+				+ st.label.style.font->width(label)
+				+ (space * 2);
+			const auto available = width - left - right;
+			badge->setVisible(available >= badge->width());
+			if (!badge->isHidden()) {
+				const auto top = st.button.padding.top()
+					+ st.button.style.font->ascent
+					- st::settingsPremiumNewBadge.style.font->ascent
+					- st::settingsPremiumNewBadgePadding.top();
+				badge->moveToLeft(left, top, width);
+			}
+		}, badge->lifetime());
+	}
+
 	const auto label = Ui::CreateChild<Ui::FlatLabel>(
 		button,
 		std::move(labelText),
 		st.label);
 	label->setAttribute(Qt::WA_TransparentForMouseEvents);
+	label->show();
 
 	rpl::combine(
 		button->widthValue(),

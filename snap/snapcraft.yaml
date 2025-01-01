@@ -70,14 +70,12 @@ layout:
     bind: $SNAP/usr/share/X11
   /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/gtk-3.0:
     bind: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/gtk-3.0
-  /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/gtk-4.0:
-    bind: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/gtk-4.0
   /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/pipewire-0.3:
     bind: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/pipewire-0.3
   /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/spa-0.2:
     bind: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/spa-0.2
-  /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/webkitgtk-6.0:
-    bind: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/webkitgtk-6.0
+  /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/webkit2gtk-4.1:
+    bind: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/webkit2gtk-4.1
 
 parts:
   telegram:
@@ -121,7 +119,7 @@ parts:
       - libprotobuf-lite32t64
       - libpulse0
       - libssl3t64
-      - libwebkitgtk-6.0-4
+      - libwebkit2gtk-4.1-0
       - libxcb1
       - libxcb-keysyms1
       - libxcb-record0
@@ -166,7 +164,7 @@ parts:
   patches:
     source: https://github.com/desktop-app/patches.git
     source-depth: 1
-    source-commit: e47e7ed0d383b8ca5622a58a5ffa0c8d5f00651f
+    source-commit: cf3b896e00c288143fce51862dbd9b1c86df1960
     plugin: dump
     override-pull: |
       craftctl default
@@ -256,7 +254,7 @@ parts:
   libjxl:
     source: https://github.com/libjxl/libjxl.git
     source-depth: 1
-    source-tag: v0.10.3
+    source-tag: v0.11.1
     plugin: cmake
     build-environment:
       - LDFLAGS: ${LDFLAGS:+$LDFLAGS} -s
@@ -276,9 +274,6 @@ parts:
       - -DJPEGXL_ENABLE_SJPEG=OFF
       - -DJPEGXL_ENABLE_OPENEXR=OFF
       - -DJPEGXL_ENABLE_SKCMS=OFF
-    override-pull: |
-      craftctl default
-      git apply $CRAFT_STAGE/patches/libjxl.patch
     stage:
       - -./usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libbrotli*
     prime:
@@ -379,7 +374,7 @@ parts:
       - mesa-vulkan-drivers
       - xkb-data
     override-pull: |
-      QT=6.8.0
+      QT=6.8.1
 
       git clone -b v${QT} --depth=1 https://github.com/qt/qt5.git .
       git submodule update --init --recursive --depth=1 qtbase qtdeclarative qtwayland qtimageformats qtsvg qtshadertools
@@ -395,6 +390,7 @@ parts:
         -DCMAKE_INSTALL_PREFIX=/usr \
         -DCMAKE_PREFIX_PATH=$CRAFT_STAGE/usr \
         -DINSTALL_LIBDIR=/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR \
+        -DQT_GENERATE_SBOM=OFF \
         -DINPUT_openssl=linked
 
       cmake --build . -j$CRAFT_PARALLEL_BUILD_COUNT
@@ -447,7 +443,7 @@ parts:
   webrtc:
     source: https://github.com/desktop-app/tg_owt.git
     source-depth: 1
-    source-commit: 4a60ce1ab9fdb962004c6a959f682ace3db50cbd
+    source-commit: 8198c4d8b91e22d68eb5c7327fd408e3b6abcc79
     plugin: cmake
     build-environment:
       - LDFLAGS: ${LDFLAGS:+$LDFLAGS} -s

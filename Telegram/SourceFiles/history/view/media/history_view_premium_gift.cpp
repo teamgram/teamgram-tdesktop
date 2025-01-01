@@ -80,7 +80,7 @@ TextWithEntities PremiumGift::subtitle() {
 			? tr::lng_action_gift_sent_text(
 				tr::now,
 				lt_count,
-				_data.convertStars,
+				_data.starsConverted,
 				lt_user,
 				Ui::Text::Bold(_parent->history()->peer->shortName()),
 				Ui::Text::RichLangValue)
@@ -89,7 +89,7 @@ TextWithEntities PremiumGift::subtitle() {
 				: tr::lng_action_gift_got_stars_text)(
 					tr::now,
 					lt_count,
-					_data.convertStars,
+					_data.starsConverted,
 					Ui::Text::RichLangValue);
 	}
 	const auto isCreditsPrize = creditsPrize();
@@ -149,6 +149,10 @@ rpl::producer<QString> PremiumGift::button() {
 		: (gift() && (outgoingGift() || !_data.unclaimed))
 		? tr::lng_sticker_premium_view()
 		: tr::lng_prize_open();
+}
+
+bool PremiumGift::buttonMinistars() {
+	return true;
 }
 
 ClickHandlerPtr PremiumGift::createViewLink() {
@@ -291,7 +295,7 @@ void PremiumGift::ensureStickerCreated() const {
 		if (const auto sticker = document->sticker()) {
 			const auto skipPremiumEffect = false;
 			_sticker.emplace(_parent, document, skipPremiumEffect, _parent);
-			_sticker->setDiceIndex(sticker->alt, 1);
+			_sticker->setPlayingOnce(true);
 			_sticker->initSize(st::msgServiceGiftBoxStickerSize);
 			return;
 		}
@@ -304,7 +308,7 @@ void PremiumGift::ensureStickerCreated() const {
 		if (const auto sticker = document->sticker()) {
 			const auto skipPremiumEffect = false;
 			_sticker.emplace(_parent, document, skipPremiumEffect, _parent);
-			_sticker->setDiceIndex(sticker->alt, 1);
+			_sticker->setPlayingOnce(true);
 			_sticker->initSize(st::msgServiceGiftBoxStickerSize);
 		}
 	}
