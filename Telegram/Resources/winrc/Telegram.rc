@@ -63,7 +63,7 @@ BEGIN
             VALUE "CompanyName", "Teamgram FZ-LLC"
             VALUE "FileDescription", "Teamgram Desktop"
             VALUE "FileVersion", "6.3.9.0"
-            VALUE "LegalCopyright", "Copyright (C) 2014-2025"
+            VALUE "LegalCopyright", "Copyright (C) 2014-2026"
             VALUE "ProductName", "Teamgram Desktop"
             VALUE "ProductVersion", "6.3.9.0"
         END
